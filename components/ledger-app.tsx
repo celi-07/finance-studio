@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { CircleAlert, Download, HandCoins, LayoutDashboard, List, Plus, Settings2, ShieldCheck, Sheet, TrendingUp } from "lucide-react";
+import { ChartSpline, CircleAlert, Download, HandCoins, LayoutGrid, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
 import { accountName, activeFields, dayLabel, emptyWorkspace, money, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { configured, deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
@@ -13,11 +13,11 @@ import { ReportingMonth } from "./ledger-picker";
 import { filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 
 const routes = {
-  overview: { label: "Overview", caption: "", icon: LayoutDashboard },
-  transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: List },
+  overview: { label: "Overview", caption: "", icon: LayoutGrid },
+  transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: ReceiptText },
   reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
-  investments: { label: "Investments", caption: "Holdings and cash movements", icon: TrendingUp },
-  settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: Settings2 },
+  investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartSpline },
+  settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
 type Route = keyof typeof routes;
 type Panel =
@@ -215,7 +215,7 @@ export default function LedgerApp() {
 
   const page = routes[route];
   const close = () => setPanel(null);
-  return <div className="app-shell">
+  return <div className="app-shell" data-route={route}>
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className="sidebar">
       <div className="sidebar-brand"><Brand/></div>

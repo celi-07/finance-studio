@@ -2,16 +2,28 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import {
-  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, CircleDollarSign,
-  ChevronRight, HandCoins, Landmark, Wallet, X, type LucideIcon,
+  ArrowDownToLine, ArrowLeftRight, Banknote, BriefcaseBusiness, ChartSpline, ChevronRight, CircleDollarSign,
+  HandCoins, HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TrainFront, Utensils, WalletCards, X, type LucideIcon,
 } from "lucide-react";
 import { accountName, activityLabel, activityMoney, dayLabel, type AccountKind, type Activity, type Workspace } from "@/lib/ledger";
 
-export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, wallet: Wallet, cash: Banknote, investment: ChartNoAxesCombined };
-export const kindIcons: Record<Activity["kind"], LucideIcon> = {
-  expense: ArrowUpRight, income: ArrowDownLeft, transfer: ArrowLeftRight,
-  investment_contribution: ChartNoAxesCombined, investment_withdrawal: ChartNoAxesCombined, reimbursement_receipt: HandCoins,
+export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, wallet: WalletCards, cash: Banknote, investment: ChartSpline };
+export const accountTones: Record<AccountKind, string> = { bank: "blue", wallet: "orchid", cash: "mint", investment: "orchid" };
+const activityStyles: Record<Activity["kind"], { icon: LucideIcon; tone: string }> = {
+  expense: { icon: ReceiptText, tone: "coral" },
+  income: { icon: ArrowDownToLine, tone: "mint" },
+  transfer: { icon: ArrowLeftRight, tone: "blue" },
+  investment_contribution: { icon: ChartSpline, tone: "orchid" },
+  investment_withdrawal: { icon: ChartSpline, tone: "orchid" },
+  reimbursement_receipt: { icon: HandCoins, tone: "amber" },
 };
+const categoryIcons = new Map<string, LucideIcon>([
+  ["food & drink", Utensils], ["transport", TrainFront], ["home & bills", House],
+  ["shopping", ShoppingBag], ["health", HeartPulse], ["salary", BriefcaseBusiness], ["freelance", PenTool],
+]);
+const categoryTones = new Map([
+  ["green", "mint"], ["blue", "blue"], ["amber", "amber"], ["violet", "orchid"], ["rose", "coral"],
+]);
 export const palette = ["green", "blue", "amber", "violet", "rose"];
 
 export function Modal({ title, subtitle, onClose, children, wide, locked }: {
@@ -47,9 +59,12 @@ export function Field({ label, children, error, full, hint }: { label: string; c
   </label>;
 }
 export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspace: Workspace; onOpen: (row: Activity) => void }) {
-  const Icon = kindIcons[row.kind];
+  const fallback = activityStyles[row.kind];
+  const category = workspace.categories.find(item => item.id === row.entry?.category_id);
+  const Icon = category ? categoryIcons.get(category.name.toLowerCase()) ?? fallback.icon : fallback.icon;
+  const tone = (category && categoryTones.get(category.color)) || fallback.tone;
   return <button type="button" className="activity-row" onClick={() => onOpen(row)} aria-label={"View " + row.title + ", " + activityLabel(row) + ", " + activityMoney(row)}>
-    <span className="glyph" aria-hidden="true"><Icon size={17} /></span>
+    <span className="glyph" data-tone={tone} aria-hidden="true"><Icon size={17} /></span>
     <span className="activity-text"><strong>{row.title}</strong><small>{row.category} <span aria-hidden="true">·</span> {accountName(workspace, row.accountId)}</small></span>
     <span className="activity-meta"><strong className={row.amount > 0 && row.kind !== "transfer" ? "positive" : ""}>{activityMoney(row)}</strong><small>{dayLabel(row.date)}</small></span>
     <ChevronRight className="activity-chevron" size={15} aria-hidden="true"/>

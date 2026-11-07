@@ -6,7 +6,7 @@ import {
   accountName, activeFields, amountText, claims, dayLabel, money, newId, parseDate, parseMoney, today,
   type Account, type Category, type Collection, type Field as Definition, type FieldType, type Receipt, type Valuation, type Workspace,
 } from "@/lib/ledger";
-import { accountIcons, Field, Modal, palette } from "./ledger-ui";
+import { accountIcons, accountTones, Field, Modal, palette } from "./ledger-ui";
 import { Picker } from "./ledger-picker";
 import { SectionHeading } from "./ledger-views";
 
@@ -157,7 +157,7 @@ export function Settings({ workspace, cloud, email, onManage, onMove, onReset, o
         <SectionHeading title="Accounts" subtitle="Bank, wallet, cash and investment accounts" action={add("accounts", "Add account")}/>
         {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
           detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Opened " + dayLabel(account.opening_date))}
-          glyph={<span className="glyph" aria-hidden="true"><Icon size={18}/></span>}
+          glyph={<span className="glyph" data-tone={accountTones[account.kind]} aria-hidden="true"><Icon size={18}/></span>}
           onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a cash account to start entering transactions.</p>}
       </section>
       <section className="panel settings-panel">
