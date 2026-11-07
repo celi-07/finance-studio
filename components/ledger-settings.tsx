@@ -7,6 +7,7 @@ import {
   type Account, type Category, type Collection, type Field as Definition, type FieldType, type Receipt, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, Field, Modal, palette } from "./ledger-ui";
+import { Picker } from "./ledger-picker";
 import { SectionHeading } from "./ledger-views";
 
 type Save = <K extends Collection>(collection: K, rows: Workspace[K]) => Promise<void>;
@@ -57,7 +58,8 @@ export function ReceiptDialog({ workspace, expenseId, close, save }: { workspace
     <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining)}</strong></div></div>
     <Field label="Amount received (Rp)"><input name="amount" inputMode="decimal" placeholder={amountText(claim.remaining)} required /></Field>
     <Field label="Date received"><input name="date" type="date" defaultValue={today()} min={claim.entry.occurred_on} max={today()} required/></Field>
-    <Field label="Deposit account" full><select name="account" required defaultValue={accounts.some(account => account.id === claim.entry.account_id) ? claim.entry.account_id : ""}><option value="">Choose account</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
+    <Field label="Deposit account" full><Picker label="Deposit account" name="account" defaultValue={accounts.some(account => account.id === claim.entry.account_id) ? claim.entry.account_id : ""}
+      options={[{ value: "", label: "Choose account" }, ...accounts.map(account => ({ value: account.id, label: account.name }))]}/></Field>
     <Field label="Notes (optional)" full><textarea name="notes" rows={2}/></Field>
   </TaskForm>;
 }
@@ -118,16 +120,20 @@ export function ManagementDialog({ edit, workspace, close, save }: { edit: Manag
   return <TaskForm title={(edit.row ? "Edit " : "Add ") + singular} close={close} submit={submit} label={edit.row ? "Save changes" : "Add " + singular}>
     <Field label={isAccount || isCategory ? "Name" : "Field label"} full><input name="name" defaultValue={isAccount || isCategory ? edit.row?.name : edit.row?.label} maxLength={70} required/></Field>
     {isAccount && <>
-      <Field label="Account type" full><select name="kind" defaultValue={edit.row?.kind ?? "bank"} disabled={!!edit.row}>{Object.entries(kindLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+      <Field label="Account type" full><Picker label="Account type" name="kind" defaultValue={edit.row?.kind ?? "bank"} disabled={!!edit.row}
+        options={Object.entries(kindLabels).map(([value, label]) => ({ value, label }))}/></Field>
       <Field label="Opening balance (Rp)"><input name="opening" inputMode="decimal" defaultValue={edit.row ? amountText(edit.row.opening_minor) : ""} placeholder="0"/></Field>
       <Field label="Opening date"><input name="date" type="date" defaultValue={edit.row?.opening_date ?? today()} required/></Field>
     </>}
     {isCategory && <>
-      <Field label="Applies to"><select name="kind" defaultValue={edit.row?.applicable_kind ?? "expense"} disabled={!!edit.row}><option value="expense">Expense</option><option value="income">Income</option></select></Field>
-      <Field label="Color"><select name="color" defaultValue={edit.row?.color ?? "green"}>{palette.map(color => <option key={color} value={color}>{color[0].toUpperCase() + color.slice(1)}</option>)}</select></Field>
+      <Field label="Applies to"><Picker label="Applies to" name="kind" defaultValue={edit.row?.applicable_kind ?? "expense"} disabled={!!edit.row}
+        options={[{ value: "expense", label: "Expense" }, { value: "income", label: "Income" }]}/></Field>
+      <Field label="Color"><Picker label="Color" name="color" defaultValue={edit.row?.color ?? "green"}
+        options={palette.map(color => ({ value: color, label: color[0].toUpperCase() + color.slice(1), swatch: color }))}/></Field>
     </>}
     {edit.collection === "field_definitions" && <>
-      <Field label="Field type" full><select value={fieldType} onChange={event => setFieldType(event.target.value as FieldType)} disabled={!!edit.row}>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+      <Field label="Field type" full><Picker label="Field type" value={fieldType} onValueChange={type => setFieldType(type as FieldType)} disabled={!!edit.row}
+        options={Object.entries(typeLabels).map(([value, label]) => ({ value, label }))}/></Field>
       {fieldType === "select" && <Field label="Options" hint="Enter one option per line." full><textarea name="options" defaultValue={edit.row?.options.join("\n")} rows={4} required/></Field>}
       <label className="checkbox-field full"><input name="required" type="checkbox" defaultChecked={edit.row?.required}/> Required on new and edited entries</label>
     </>}
@@ -151,7 +157,7 @@ export function Settings({ workspace, cloud, email, onManage, onMove, onReset, o
         <SectionHeading title="Accounts" subtitle="Bank, wallet, cash and investment accounts" action={add("accounts", "Add account")}/>
         {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
           detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Opened " + dayLabel(account.opening_date))}
-          glyph={<span className={"glyph " + (account.kind === "investment" ? "violet" : "green")}><Icon size={18}/></span>}
+          glyph={<span className="glyph" aria-hidden="true"><Icon size={18}/></span>}
           onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a cash account to start entering transactions.</p>}
       </section>
       <section className="panel settings-panel">
@@ -172,7 +178,7 @@ export function Settings({ workspace, cloud, email, onManage, onMove, onReset, o
       </section>
       <section className="panel settings-panel">
         <SectionHeading title="Workspace" subtitle="Indonesian rupiah (IDR) · Asia/Jakarta reporting dates"/>
-        <div className="storage-card"><span className="glyph green"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Supabase workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? email : "The demo starts with fictional records. Connect Supabase to keep a separate signed-in workspace."}</p></div></div>
+        <div className="storage-card"><span className="glyph"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Supabase workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? email : "The demo starts with fictional records. Connect Supabase to keep a separate signed-in workspace."}</p></div></div>
         <div className="button-line">{cloud ? <button className="button secondary" onClick={onSignOut}>Sign out</button> : <>
           <a className="button secondary" href="https://supabase.com/docs/guides/getting-started" target="_blank" rel="noreferrer">Supabase documentation</a>
           <button className="button secondary" onClick={onExport}><Download size={16}/> Export demo data</button>

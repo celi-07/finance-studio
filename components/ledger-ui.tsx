@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, CircleDollarSign,
-  HandCoins, Landmark, Wallet, X, type LucideIcon,
+  ChevronRight, HandCoins, Landmark, Wallet, X, type LucideIcon,
 } from "lucide-react";
 import { accountName, activityLabel, activityMoney, dayLabel, type AccountKind, type Activity, type Workspace } from "@/lib/ledger";
 
@@ -11,9 +11,6 @@ export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, w
 export const kindIcons: Record<Activity["kind"], LucideIcon> = {
   expense: ArrowUpRight, income: ArrowDownLeft, transfer: ArrowLeftRight,
   investment_contribution: ChartNoAxesCombined, investment_withdrawal: ChartNoAxesCombined, reimbursement_receipt: HandCoins,
-};
-export const kindColors: Record<Activity["kind"], string> = {
-  expense: "rose", income: "green", transfer: "blue", investment_contribution: "violet", investment_withdrawal: "violet", reimbursement_receipt: "amber",
 };
 export const palette = ["green", "blue", "amber", "violet", "rose"];
 
@@ -42,7 +39,7 @@ export function Modal({ title, subtitle, onClose, children, wide, locked }: {
 export function Empty({ title, description, action, icon: Icon = CircleDollarSign }: {
   title: string; description: string; action?: ReactNode; icon?: LucideIcon;
 }) {
-  return <div className="empty"><span className="glyph green"><Icon size={22} /></span><h3>{title}</h3><p>{description}</p>{action}</div>;
+  return <div className="empty"><span className="glyph"><Icon size={22} /></span><h3>{title}</h3><p>{description}</p>{action}</div>;
 }
 export function Field({ label, children, error, full, hint }: { label: string; children: ReactNode; error?: string; full?: boolean; hint?: string }) {
   return <label className={"field" + (full ? " full" : "")}>
@@ -52,9 +49,10 @@ export function Field({ label, children, error, full, hint }: { label: string; c
 export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspace: Workspace; onOpen: (row: Activity) => void }) {
   const Icon = kindIcons[row.kind];
   return <button type="button" className="activity-row" onClick={() => onOpen(row)} aria-label={"View " + row.title + ", " + activityLabel(row) + ", " + activityMoney(row)}>
-    <span className={"glyph " + kindColors[row.kind]}><Icon size={17} /></span>
+    <span className="glyph" aria-hidden="true"><Icon size={17} /></span>
     <span className="activity-text"><strong>{row.title}</strong><small>{row.category} <span aria-hidden="true">·</span> {accountName(workspace, row.accountId)}</small></span>
     <span className="activity-meta"><strong className={row.amount > 0 && row.kind !== "transfer" ? "positive" : ""}>{activityMoney(row)}</strong><small>{dayLabel(row.date)}</small></span>
+    <ChevronRight className="activity-chevron" size={15} aria-hidden="true"/>
   </button>;
 }
 export function Brand() {

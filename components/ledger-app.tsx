@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Download, HandCoins, LayoutDashboard, List, Plus, Settings2, ShieldCheck, Sheet, TrendingUp } from "lucide-react";
-import { accountName, activeFields, dayLabel, emptyWorkspace, money, monthLabel, shiftMonth, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { CircleAlert, Download, HandCoins, LayoutDashboard, List, Plus, Settings2, ShieldCheck, Sheet, TrendingUp } from "lucide-react";
+import { accountName, activeFields, dayLabel, emptyWorkspace, money, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { configured, deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
 import { downloadStatement } from "@/lib/statement";
 import { EntryDialog } from "./ledger-entry";
 import { ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
 import { Brand, Empty, Field, Modal } from "./ledger-ui";
+import { ReportingMonth } from "./ledger-picker";
 import { filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 
 const routes = {
@@ -218,38 +219,39 @@ export default function LedgerApp() {
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className="sidebar">
       <div className="sidebar-brand"><Brand/></div>
-      <nav className="nav" aria-label="Workspace">
+      <nav className="nav" aria-label="Workspace" style={{ "--selection": Object.keys(routes).indexOf(route) } as CSSProperties}>
+        <span className="nav-lens" aria-hidden="true"/>
         {Object.entries(routes).map(([key, { label, icon: Icon }]) => <a key={key} href={"#" + key} aria-current={route === key ? "page" : undefined}
           onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); navigate(key as Route); } }}>
           <Icon size={19} aria-hidden="true"/><span className="nav-label">{label}</span>
           <span className="nav-short">{key === "transactions" ? "Activity" : key === "reimbursements" ? "Claims" : key === "investments" ? "Invest" : label}</span>
         </a>)}
       </nav>
-      <div className="sidebar-bottom"><span className="glyph green"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Connected to Supabase" : "Saved in this browser"}</small></div></div>
+      <div className="sidebar-bottom"><span className="glyph"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Connected to Supabase" : "Saved in this browser"}</small></div></div>
     </aside>
     <main className="main-content" id="main-content">
       <div className="page">
-        <header className="page-heading"><div className="page-title"><h1>{page.label}</h1>{page.caption && <p>{page.caption}</p>}<span className="mobile-workspace">{configured ? "Private workspace" : "Demo workspace"}</span></div>
-          <div className="header-actions">
-            {route !== "settings" && <div className="month-control" aria-label="Reporting month">
-              <button className="icon-button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}><ChevronLeft size={16}/></button>
-              <label className="month-label"><CalendarDays size={16}/><span>{monthLabel(month)}</span><ChevronDown size={14}/><input type="month" aria-label="Select reporting month" value={month} min="1900-01" max="2199-12" onChange={event => { if (/^(?:19|20|21)\d{2}-(?:0[1-9]|1[0-2])$/.test(event.target.value)) setMonth(event.target.value); }}/></label>
-              <button className="icon-button" aria-label="Next month" onClick={() => setMonth(shiftMonth(month, 1))}><ChevronRight size={16}/></button>
-            </div>}
-            {route !== "settings" && <button className="button secondary" onClick={makePdf} disabled={exporting || loading}><Download size={17}/>{exporting ? "Preparing…" : "Download PDF"}</button>}
-            {route === "transactions" && <button className="button secondary" onClick={() => openEntry(undefined, undefined, true)}><Sheet size={17}/> Spreadsheet</button>}
+        <header className="page-heading" key={"heading-" + route}><div className="page-title"><h1>{page.label}</h1>{page.caption && <p>{page.caption}</p>}<span className="mobile-workspace">{configured ? "Private workspace" : "Demo workspace"}</span></div>
+          <div className={"header-actions" + (route === "settings" ? "" : " reporting-actions")}>
+            {route !== "settings" && <ReportingMonth value={month} onChange={setMonth}/>}
+            {route !== "settings" && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} onClick={makePdf} disabled={exporting || loading}>
+              <Download size={17}/><span className="desktop-export">{exporting ? "Preparing…" : "Download PDF"}</span><span className="compact-export" aria-hidden="true">{exporting ? "Saving…" : "PDF"}</span>
+            </button>}
+            {route === "transactions" && <button className="button secondary sheet-action" onClick={() => openEntry(undefined, undefined, true)}><Sheet size={17}/> Spreadsheet</button>}
             <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>
           </div>
         </header>
         {problem && <div className="form-message error" role="alert"><CircleAlert size={18}/>{problem}<button className="button quiet" onClick={() => setProblem("")}>Dismiss</button></div>}
         {loading && <div className="panel"><Empty title="Opening your workspace" description="Loading entries and accounts…"/></div>}
-        {!loading && route === "overview" && <Overview workspace={data} month={month} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>}
-        {!loading && route === "transactions" && <Transactions workspace={data} month={month} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
-        {!loading && route === "reimbursements" && <Reimbursements workspace={data} month={month} onReceive={id => setPanel({ type: "receive", id })}
-          onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
-        {!loading && route === "investments" && <Investments workspace={data} month={month} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
-        {!loading && route === "settings" && <Settings workspace={data} cloud={configured} email={identity?.email} onManage={edit => setPanel({ type: "manage", edit })}
-          onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onSignOut={signOut}/>}
+        <div className="page-content" key={"content-" + route}>
+          {!loading && route === "overview" && <Overview workspace={data} month={month} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>}
+          {!loading && route === "transactions" && <Transactions workspace={data} month={month} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
+          {!loading && route === "reimbursements" && <Reimbursements workspace={data} month={month} onReceive={id => setPanel({ type: "receive", id })}
+            onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
+          {!loading && route === "investments" && <Investments workspace={data} month={month} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
+          {!loading && route === "settings" && <Settings workspace={data} cloud={configured} email={identity?.email} onManage={edit => setPanel({ type: "manage", edit })}
+            onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onSignOut={signOut}/>}
+        </div>
         <footer className="footer"><span>Ledger · Personal finance</span><span>IDR · Asia/Jakarta</span></footer>
       </div>
     </main>

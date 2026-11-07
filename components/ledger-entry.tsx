@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import {
   activeFields, blankDraft, draftFrom, editableAccounts, kinds, needsDestination, validateEntry,
   type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
+import { Picker } from "./ledger-picker";
 
 type Props = {
   workspace: Workspace; month: string; original?: Entry; kind?: Kind; preset?: string; initialBulk?: boolean;
@@ -26,9 +27,12 @@ function CustomInput({ definition, value, set, invalid, prior }: {
 }) {
   const current = typeof value === "string" ? value : "";
   if (definition.field_type === "checkbox") return <input aria-invalid={invalid} type="checkbox" checked={value === true} onChange={event => set(event.target.checked)} />;
-  if (definition.field_type === "select") return <select aria-invalid={invalid} value={current} onChange={event => set(event.target.value)}><option value="">Select an option</option>
-    {prior && current && !definition.options.includes(current) && <option value={current}>{current} (previous option)</option>}
-    {definition.options.map(option => <option key={option}>{option}</option>)}</select>;
+  if (definition.field_type === "select") return <Picker label={definition.label} invalid={invalid} value={current} onValueChange={set}
+    options={[
+      { value: "", label: "Select an option" },
+      ...(prior && current && !definition.options.includes(current) ? [{ value: current, label: current + " (previous option)" }] : []),
+      ...definition.options.map(option => ({ value: option, label: option })),
+    ]}/>;
   return <input aria-invalid={invalid} value={current} type={definition.field_type === "date" ? "date" : "text"}
     inputMode={definition.field_type === "number" ? "decimal" : undefined} onChange={event => set(event.target.value)} />;
 }
@@ -145,11 +149,11 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
     finally { setWorking(false); }
   }
   return <Modal title={original ? "Edit entry" : "Add entries"} subtitle={original ? "Update the details in your ledger." : "Choose how to enter your transactions."} onClose={onClose} wide={bulk} locked={working}>
-    {!original && <div className="mode-switch" role="group" aria-label="Entry mode">
+    {!original && <div className="mode-switch segmented" style={{ "--selection": bulk ? 1 : 0 } as CSSProperties} role="group" aria-label="Entry mode">
       <button type="button" aria-pressed={!bulk} onClick={() => { setBulk(false); setProblem(""); }}>Form</button>
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>}
-    {bulk ? <form onSubmit={saveRows} noValidate>
+    {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Start in a cell and paste tab-separated rows. Use account and category names, and dates like 2026-11-07 or 07/11/2026. Scroll the grid for optional fields.</p></div>
       <div className="grid-scroll" tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label]) => <th key={key} scope="col" className={"col-" + key}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
@@ -169,18 +173,28 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
       <div className="bulk-add"><button type="button" className="button quiet" onClick={() => setRows(current => [...current, make()])} disabled={rows.length >= 250}><Plus size={16} /> Add row</button></div>
       {problem && <p className="form-message error" role="alert"><CircleAlert size={17} />{problem}</p>}
       <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose} disabled={working}>Cancel</button><button className="button primary" disabled={working}>{working ? "Saving…" : "Save all entries"}</button></div>
-    </form> : <form onSubmit={saveForm} noValidate>
+    </form> : <form className="entry-mode" key="form" onSubmit={saveForm} noValidate>
       <div className="form-grid">
-        <Field label="Type" error={errors.kind}><select value={draft.kind} aria-invalid={!!errors.kind} onChange={event => setDraft(changeKind(workspace, draft, event.target.value))}>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+        <Field label="Type" error={errors.kind}><Picker label="Type" value={draft.kind} invalid={!!errors.kind}
+          onValueChange={kind => setDraft(changeKind(workspace, draft, kind))}
+          options={Object.entries(kinds).map(([value, label]) => ({ value, label }))}/></Field>
         <Field label="Date" error={errors.occurred_on}><input type="date" value={draft.occurred_on} aria-invalid={!!errors.occurred_on} onChange={event => set("occurred_on", event.target.value)} /></Field>
         <Field label="Amount (Rp)" error={errors.amount} full><input className="entry-amount" value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount} onChange={event => set("amount", event.target.value)} /></Field>
         <Field label="Description" error={errors.description} full><input value={draft.description} placeholder="e.g. Grocery run" aria-invalid={!!errors.description} onChange={event => set("description", event.target.value)} /></Field>
-        <Field label={needsDestination(draft.kind) ? "From account" : "Account"} error={errors.account_id}><select value={draft.account_id} aria-invalid={!!errors.account_id} onChange={event => set("account_id", event.target.value)}>
-          <option value="">Choose account</option>{availableAccounts(false).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-        </select></Field>
-        {needsDestination(draft.kind) ? <Field label="To account" error={errors.destination_account_id}><select value={draft.destination_account_id ?? ""} aria-invalid={!!errors.destination_account_id} onChange={event => set("destination_account_id", event.target.value || null)}>
-          <option value="">Choose account</option>{availableAccounts(true).filter(account => account.id !== draft.account_id).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-        </select></Field> : <Field label="Category" error={errors.category_id}><select value={draft.category_id ?? ""} aria-invalid={!!errors.category_id} onChange={event => set("category_id", event.target.value || null)}><option value="">Uncategorized</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field>}
+        <Field label={needsDestination(draft.kind) ? "From account" : "Account"} error={errors.account_id}>
+          <Picker label={needsDestination(draft.kind) ? "From account" : "Account"} value={draft.account_id} invalid={!!errors.account_id}
+            onValueChange={id => set("account_id", id)}
+            options={[{ value: "", label: "Choose account" }, ...availableAccounts(false).map(account => ({ value: account.id, label: account.name }))]}/>
+        </Field>
+        {needsDestination(draft.kind) ? <Field label="To account" error={errors.destination_account_id}>
+          <Picker label="To account" value={draft.destination_account_id ?? ""} invalid={!!errors.destination_account_id}
+            onValueChange={id => set("destination_account_id", id || null)}
+            options={[{ value: "", label: "Choose account" }, ...availableAccounts(true).filter(account => account.id !== draft.account_id).map(account => ({ value: account.id, label: account.name }))]}/>
+        </Field> : <Field label="Category" error={errors.category_id}>
+          <Picker label="Category" value={draft.category_id ?? ""} invalid={!!errors.category_id}
+            onValueChange={id => set("category_id", id || null)}
+            options={[{ value: "", label: "Uncategorized" }, ...activeCategories.map(category => ({ value: category.id, label: category.name, swatch: category.color }))]}/>
+        </Field>}
         {draft.kind === "expense" && <label className="checkbox-field full"><input type="checkbox" checked={claim} onChange={event => setClaim(event.target.checked)} /> Part of this expense will be reimbursed</label>}
         {draft.kind === "expense" && claim && <>
           <Field label="Reimbursable amount (Rp)" error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onChange={event => set("reimbursable", event.target.value)} /></Field>
