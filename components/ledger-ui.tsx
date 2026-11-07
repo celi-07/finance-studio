@@ -58,5 +58,8 @@ export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspa
   </button>;
 }
 export function Brand() {
-  return <div className="brand"><span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M10 25V13m8 12V9m8 16v-8" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round"/><circle cx="26" cy="11" r="1.7" fill="currentColor"/></svg></span><div><strong>Ledger</strong><small>PERSONAL FINANCE</small></div></div>;
+  return <div className="brand"><span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none">
+    <path d="M14.5 13.5h16a4 4 0 0 1 4 4v17h-17a4 4 0 0 1-4-4v-16a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round"/>
+    <path d="M19.5 14v20m4.5-13h6m-6 5h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
+  </svg></span><strong>Ledger</strong></div>;
 }

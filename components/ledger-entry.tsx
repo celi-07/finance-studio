@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
-import { CircleAlert, ClipboardList, Plus, Rows3, Trash2 } from "lucide-react";
+import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import {
   activeFields, blankDraft, draftFrom, editableAccounts, kinds, needsDestination, validateEntry,
   type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
@@ -144,10 +144,10 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
     catch (error) { setProblem(error instanceof Error ? error.message : "The rows could not be saved."); }
     finally { setWorking(false); }
   }
-  return <Modal title={original ? "Edit entry" : "Add entries"} subtitle={original ? "Update the details in your ledger." : "Record one item or paste a batch from your spreadsheet."} onClose={onClose} wide={bulk} locked={working}>
+  return <Modal title={original ? "Edit entry" : "Add entries"} subtitle={original ? "Update the details in your ledger." : "Choose how to enter your transactions."} onClose={onClose} wide={bulk} locked={working}>
     {!original && <div className="mode-switch" role="group" aria-label="Entry mode">
-      <button type="button" aria-pressed={!bulk} onClick={() => { setBulk(false); setProblem(""); }}><ClipboardList size={16} /> Form</button>
-      <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}><Rows3 size={16} /> Spreadsheet</button>
+      <button type="button" aria-pressed={!bulk} onClick={() => { setBulk(false); setProblem(""); }}>Form</button>
+      <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>}
     {bulk ? <form onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Start in a cell and paste tab-separated rows. Use account and category names, and dates like 2026-11-07 or 07/11/2026. Scroll the grid for optional fields.</p></div>
@@ -173,14 +173,14 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
       <div className="form-grid">
         <Field label="Type" error={errors.kind}><select value={draft.kind} aria-invalid={!!errors.kind} onChange={event => setDraft(changeKind(workspace, draft, event.target.value))}>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
         <Field label="Date" error={errors.occurred_on}><input type="date" value={draft.occurred_on} aria-invalid={!!errors.occurred_on} onChange={event => set("occurred_on", event.target.value)} /></Field>
+        <Field label="Amount (Rp)" error={errors.amount} full><input className="entry-amount" value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount} onChange={event => set("amount", event.target.value)} /></Field>
         <Field label="Description" error={errors.description} full><input value={draft.description} placeholder="e.g. Grocery run" aria-invalid={!!errors.description} onChange={event => set("description", event.target.value)} /></Field>
-        <Field label="Amount (Rp)" error={errors.amount}><input value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount} onChange={event => set("amount", event.target.value)} /></Field>
         <Field label={needsDestination(draft.kind) ? "From account" : "Account"} error={errors.account_id}><select value={draft.account_id} aria-invalid={!!errors.account_id} onChange={event => set("account_id", event.target.value)}>
           <option value="">Choose account</option>{availableAccounts(false).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></Field>
-        {needsDestination(draft.kind) ? <Field label="To account" error={errors.destination_account_id} full><select value={draft.destination_account_id ?? ""} aria-invalid={!!errors.destination_account_id} onChange={event => set("destination_account_id", event.target.value || null)}>
+        {needsDestination(draft.kind) ? <Field label="To account" error={errors.destination_account_id}><select value={draft.destination_account_id ?? ""} aria-invalid={!!errors.destination_account_id} onChange={event => set("destination_account_id", event.target.value || null)}>
           <option value="">Choose account</option>{availableAccounts(true).filter(account => account.id !== draft.account_id).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-        </select></Field> : <Field label="Category" error={errors.category_id} full><select value={draft.category_id ?? ""} aria-invalid={!!errors.category_id} onChange={event => set("category_id", event.target.value || null)}><option value="">Uncategorized</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field>}
+        </select></Field> : <Field label="Category" error={errors.category_id}><select value={draft.category_id ?? ""} aria-invalid={!!errors.category_id} onChange={event => set("category_id", event.target.value || null)}><option value="">Uncategorized</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field>}
         {draft.kind === "expense" && <label className="checkbox-field full"><input type="checkbox" checked={claim} onChange={event => setClaim(event.target.checked)} /> Part of this expense will be reimbursed</label>}
         {draft.kind === "expense" && claim && <>
           <Field label="Reimbursable amount (Rp)" error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onChange={event => set("reimbursable", event.target.value)} /></Field>

@@ -19,29 +19,39 @@ export async function createStatement(workspace: Workspace, month: string, demo:
   pdf.addFileToVFS("DejaVuSans.ttf", font);
   pdf.addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
   const page = pdf.internal.pageSize;
-  const ink = "#102720";
-  const muted = "#465d53";
-  const leaf = "#16704f";
+  const ink = "#1b2333";
+  const muted = "#546077";
+  const accent = "#234fca";
   const num = (amount: number) => money(amount).replace(/\u00a0/g, " ");
   const safe = (text: string) => text.replace(/\r\n?/g, "\n").replace(/[\x00-\x09\x0b-\x1f]/g, " ");
   pdf.setProperties({ title: "Ledger Monthly Statement - " + monthLabel(month), creator: "Ledger" });
-  pdf.setFillColor(ink); pdf.roundedRect(15, 16, 180, 38, 3, 3, "F");
-  pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor("#c2eed7");
-  pdf.text("LEDGER  /  PERSONAL FINANCE", 21, 25);
-  pdf.setTextColor("#ffffff"); pdf.setFontSize(23); pdf.text("Monthly Statement", 21, 37);
-  pdf.setFontSize(10); pdf.setFont("helvetica", "normal");
-  pdf.text(monthLabel(month) + "  |  IDR  |  Asia/Jakarta", 21, 46);
-  pdf.setTextColor(muted); pdf.setFontSize(9); pdf.text("Generated " + dayLabel(today()), 15, 62);
-  if (demo) { pdf.setFont("helvetica", "bold"); pdf.setTextColor("#8b4b10"); pdf.text("DEMO DATA", 195, 62, { align: "right" }); }
+  pdf.setFillColor(accent); pdf.roundedRect(15, 16, 8, 8, 2, 2, "F");
+  pdf.setDrawColor("#ffffff"); pdf.setLineWidth(.4);
+  pdf.line(17.4, 18.4, 17.4, 21.7); pdf.line(18.6, 18.4, 20.6, 18.4);
+  pdf.line(18.6, 19.8, 20.6, 19.8); pdf.line(18.6, 21.2, 20.6, 21.2);
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(ink);
+  pdf.text("Ledger", 26, 21.6);
+  pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(9);
+  pdf.text("Issued " + dayLabel(today()), 195, 21.6, { align: "right" });
+  pdf.setFont("helvetica", "bold"); pdf.setTextColor(ink); pdf.setFontSize(25);
+  pdf.text("Monthly statement", 15, 38);
+  pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(10);
+  pdf.text(monthLabel(month) + "  /  IDR  /  Asia/Jakarta", 15, 46);
+  if (demo) { pdf.setFont("helvetica", "bold"); pdf.setTextColor(accent); pdf.text("DEMO DATA", 195, 46, { align: "right" }); }
+  pdf.setFillColor("#eef2fb"); pdf.roundedRect(15, 52, 180, 20, 2, 2, "F");
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(muted);
+  pdf.text("Cash balance at month end", 20, 64);
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(ink);
+  pdf.text(num(report.cash), 190, 64.7, { align: "right" });
   const style = { font: "DejaVuSans", textColor: ink, fontSize: 9, cellPadding: 2.5, overflow: "linebreak" as const };
-  let cursor = 69;
+  let cursor = 82;
   function block(title: string, head: string[], body: string[][], widths?: Record<number, { cellWidth?: number; halign?: "right" }>) {
-    if (cursor > page.getHeight() - 35) { pdf.addPage(); cursor = 20; }
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(leaf); pdf.text(title, 15, cursor);
+    if (cursor > page.getHeight() - 49) { pdf.addPage(); cursor = 20; }
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(ink); pdf.text(title, 15, cursor);
     autoTable(pdf, {
       startY: cursor + 4, margin: { left: 15, right: 15, top: 17, bottom: 17 },
       head: [head.map(safe)], body: body.map(row => row.map(safe)), styles: style,
-      headStyles: { fillColor: leaf, textColor: "#ffffff", fontStyle: "normal" }, alternateRowStyles: { fillColor: "#f0f7f2" },
+      headStyles: { fillColor: "#e9eef8", textColor: ink, fontStyle: "normal" }, alternateRowStyles: { fillColor: "#f6f8fc" },
       columnStyles: widths, showHead: "everyPage", rowPageBreak: "avoid",
       didParseCell: ({ section, column, cell }) => {
         if (section === "head" && widths?.[column.index]?.halign) cell.styles.halign = "right";
@@ -50,7 +60,7 @@ export async function createStatement(workspace: Workspace, month: string, demo:
     cursor = ((pdf as typeof pdf & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY) + 11;
   }
   block("Full-month summary", ["Summary", "Amount"], [
-    ["Cash balance at month end", num(report.cash)], ["Income", num(report.income)],
+    ["Income", num(report.income)],
     ["Gross expenses paid", num(report.gross)], ["Personal spending", num(report.spending)],
     ["Reimbursements received", num(report.collected)], ["Reimbursements outstanding", num(report.receivable)],
     ["Investment contributions", num(report.contribution)], ["Investment withdrawals", num(report.withdrawal)],
@@ -88,7 +98,7 @@ export async function createStatement(workspace: Workspace, month: string, demo:
   const count = pdf.getNumberOfPages();
   for (let number = 1; number <= count; number += 1) {
     pdf.setPage(number);
-    pdf.setDrawColor("#d1ded6"); pdf.line(15, page.getHeight() - 13, 195, page.getHeight() - 13);
+    pdf.setDrawColor("#d7deea"); pdf.line(15, page.getHeight() - 13, 195, page.getHeight() - 13);
     pdf.setTextColor(muted); pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
     pdf.text("Ledger Monthly Statement  |  " + monthLabel(month) + (demo ? "  |  Demo data" : ""), 15, page.getHeight() - 8);
     pdf.text(number + " / " + count, 195, page.getHeight() - 8, { align: "right" });

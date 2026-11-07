@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Download, HandCoins, LayoutDashboard, List, Menu, Plus, Settings2, ShieldCheck, Sheet, TrendingUp } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Download, HandCoins, LayoutDashboard, List, Plus, Settings2, ShieldCheck, Sheet, TrendingUp } from "lucide-react";
 import { accountName, activeFields, dayLabel, emptyWorkspace, money, monthLabel, shiftMonth, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { configured, deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
@@ -12,11 +12,11 @@ import { Brand, Empty, Field, Modal } from "./ledger-ui";
 import { filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 
 const routes = {
-  overview: { label: "Overview", caption: "A clear picture of your money this month.", icon: LayoutDashboard },
-  transactions: { label: "Transactions", caption: "Search, review and record your financial activity.", icon: List },
-  reimbursements: { label: "Reimbursements", caption: "Follow what’s owed, what’s paid and what’s still outstanding.", icon: HandCoins },
-  investments: { label: "Investments", caption: "Track what you’ve contributed and how much it’s worth.", icon: TrendingUp },
-  settings: { label: "Settings", caption: "Make Ledger work the way you track money.", icon: Settings2 },
+  overview: { label: "Overview", caption: "", icon: LayoutDashboard },
+  transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: List },
+  reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
+  investments: { label: "Investments", caption: "Holdings and cash movements", icon: TrendingUp },
+  settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: Settings2 },
 } as const;
 type Route = keyof typeof routes;
 type Panel =
@@ -90,7 +90,6 @@ export default function LedgerApp() {
   const [recovery, setRecovery] = useState(false);
   const [problem, setProblem] = useState("");
   const [notice, setNotice] = useState("");
-  const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState<Filters>({ search: "", kind: "", account: "" });
@@ -145,7 +144,7 @@ export default function LedgerApp() {
     return () => clearTimeout(timer);
   }, [notice]);
   function navigate(next: Route) {
-    setRoute(next); setMenu(false);
+    setRoute(next);
     if (window.location.hash !== "#" + next) window.history.pushState(null, "", "#" + next);
     window.scrollTo({ top: 0 });
   }
@@ -218,18 +217,19 @@ export default function LedgerApp() {
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className="sidebar">
-      <div className="sidebar-brand"><Brand/><button className="icon-button mobile-menu" aria-label="Toggle navigation" aria-expanded={menu} onClick={() => setMenu(!menu)}><Menu size={22}/></button></div>
-      <nav className={menu ? "nav open" : "nav"} aria-label="Workspace">
-        <span className="nav-caption">WORKSPACE</span>
+      <div className="sidebar-brand"><Brand/></div>
+      <nav className="nav" aria-label="Workspace">
         {Object.entries(routes).map(([key, { label, icon: Icon }]) => <a key={key} href={"#" + key} aria-current={route === key ? "page" : undefined}
-          onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); navigate(key as Route); } }}><Icon size={19}/>{label}</a>)}
+          onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); navigate(key as Route); } }}>
+          <Icon size={19} aria-hidden="true"/><span className="nav-label">{label}</span>
+          <span className="nav-short">{key === "transactions" ? "Activity" : key === "reimbursements" ? "Claims" : key === "investments" ? "Invest" : label}</span>
+        </a>)}
       </nav>
       <div className="sidebar-bottom"><span className="glyph green"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Connected to Supabase" : "Saved in this browser"}</small></div></div>
     </aside>
     <main className="main-content" id="main-content">
-      <div className="topbar"><span>Personal workspace <ChevronRight size={14}/> <strong>{page.label}</strong></span><span className="workspace-badge"><i/> {configured ? "Connected" : "Demo mode"}</span></div>
       <div className="page">
-        <header className="page-heading"><div><div className="eyebrow">YOUR MONEY AT A GLANCE</div><h1>{page.label}</h1><p>{page.caption}</p></div>
+        <header className="page-heading"><div className="page-title"><h1>{page.label}</h1>{page.caption && <p>{page.caption}</p>}<span className="mobile-workspace">{configured ? "Private workspace" : "Demo workspace"}</span></div>
           <div className="header-actions">
             {route !== "settings" && <div className="month-control" aria-label="Reporting month">
               <button className="icon-button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}><ChevronLeft size={16}/></button>

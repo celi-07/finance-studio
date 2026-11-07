@@ -16,27 +16,36 @@ export function SectionHeading({ title, subtitle, action }: { title: string; sub
 }
 
 function MovementChart({ workspace, month }: { workspace: Workspace; month: string }) {
-  const months = Array.from({ length: 6 }, (_, index) => shiftMonth(month, index - 5));
+  const [range, setRange] = useState(3);
+  const months = Array.from({ length: range }, (_, index) => shiftMonth(month, index - range + 1));
   const series = months.map(period => ({ period, ...monthly(workspace, period) }));
   const max = Math.max(...series.map(item => Math.max(item.cashIn, item.cashOut)), 100);
   const exponent = 10 ** Math.floor(Math.log10(max));
   const scale = Math.ceil(max / exponent * 2) * exponent / 2;
   const axis = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
-  return <section className="panel flow-panel">
-    <SectionHeading title="Cash movement" subtitle="In and out of your cash accounts over six months" />
+  return <section className="flow-panel">
+    <SectionHeading title="Cash movement" action={<div className="range-switch" role="group" aria-label="Cash movement range">
+      {[3, 6].map(count => <button type="button" key={count} aria-label={count + " months"} aria-pressed={range === count} onClick={() => setRange(count)}>{count}M</button>)}
+    </div>}/>
     <div className="chart-legend"><span><i className="income-key"/> Inflow</span><span><i className="expense-key"/> Outflow</span><span className="chart-unit">IDR</span></div>
     <div className="chart" role="img" aria-label={series.map(row => monthLabel(row.period) + " inflow " + money(row.cashIn) + ", outflow " + money(row.cashOut)).join(". ")}>
       <div className="chart-ticks" aria-hidden="true">{[1, .75, .5, .25, 0].map(ratio => <span key={ratio}>{axis.format(scale * ratio / 100)}</span>)}</div>
       <div className="chart-body" aria-hidden="true">
         <div className="chart-lines"><i/><i/><i/><i/><i/></div>
-        <div className="chart-groups">{series.map(row => <div key={row.period} className={"chart-group" + (row.period === month ? " current" : "")}>
+        <div className="chart-groups" style={{ gridTemplateColumns: "repeat(" + range + ", minmax(0, 1fr))" }}>{series.map(row => <div key={row.period} className={"chart-group" + (row.period === month ? " current" : "")}>
           <div className="chart-bars" title={monthLabel(row.period) + " • In " + money(row.cashIn) + " • Out " + money(row.cashOut)}>
-            <i className="income-key" style={{ height: (row.cashIn / scale * 100) + "%" }}/><i className="expense-key" style={{ height: (row.cashOut / scale * 100) + "%" }}/>
+            <i className="income-key" hidden={!row.cashIn} style={{ height: (row.cashIn / scale * 100) + "%" }}/><i className="expense-key" hidden={!row.cashOut} style={{ height: (row.cashOut / scale * 100) + "%" }}/>
           </div>
           <span>{monthLabel(row.period).slice(0, 3)}</span>
         </div>)}</div>
       </div>
     </div>
+    <details className="chart-details">
+      <summary>Monthly totals</summary>
+      <dl>{series.toReversed().map(row => <div key={row.period}>
+        <dt>{monthLabel(row.period)}</dt><dd>In {money(row.cashIn)}<br/>Out {money(row.cashOut)}</dd>
+      </div>)}</dl>
+    </details>
   </section>;
 }
 
@@ -53,42 +62,56 @@ export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
     { name: "Owed to you", amount: report.receivable, hint: report.claims.filter(claim => claim.remaining).length + " open claims at month end", icon: HandCoins, color: "amber" },
   ];
   return <>
-    <section className="hero">
-      <svg className="hero-pattern" viewBox="0 0 680 220" fill="none" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
-        {Array.from({length: 11}, (_, i) => <path key={i} d={"M " + (300 + i * 15) + " 243 C " + (360 + i * 15) + " 130 " + (330 + i * 15) + " 82 " + (500 + i * 15) + " 66 S " + (635 + i * 15) + " 42 " + (693 + i * 15) + " -37"} stroke="currentColor" strokeWidth="1"/>)}
-        <circle cx="623" cy="64" r="3.5" fill="currentColor"/><circle cx="563" cy="101" r="3" fill="currentColor"/>
-      </svg>
-      <div className="hero-main"><div className="hero-kicker"><Wallet size={16}/> CASH BALANCE</div><strong>{money(report.cash)}</strong><p>Cash across accounts at month end</p></div>
-      <div className="hero-side"><span>Monthly cash flow</span><strong className={report.netCashFlow >= 0 ? "hero-positive" : "hero-negative"}>{report.netCashFlow > 0 ? "+" : report.netCashFlow < 0 ? "−" : ""}{money(Math.abs(report.netCashFlow))}</strong>
-        <small>{prior.cashIn || prior.cashOut ? <>{change >= 0 ? <ArrowUpRight size={15}/> : <ArrowDownLeft size={15}/>} {money(Math.abs(change))} {change >= 0 ? "higher" : "lower"} vs. prior month</> : "Income, reimbursements and investment movements included"}</small></div>
-    </section>
-    <div className="metric-grid">{metrics.map(({ name, amount, hint, icon: Icon, color }) => <section className="metric panel" key={name}>
-      <div><span className={"glyph " + color}><Icon size={19}/></span><h2>{name}</h2></div><strong>{money(amount)}</strong><p>{hint}</p>
-    </section>)}</div>
     <div className="overview-grid">
-      <MovementChart workspace={workspace} month={month}/>
+      <section className="panel cash-report" aria-label="Cash balance and movement">
+        <div className="balance-header">
+          <div className="balance-main">
+            <span className="balance-label">Cash balance</span>
+            <strong>{money(report.cash)}</strong>
+            <p>At the end of {monthLabel(month)}</p>
+          </div>
+          <div className="balance-delta">
+            <span>Net cash flow</span>
+            <strong>{report.netCashFlow > 0 ? "+" : report.netCashFlow < 0 ? "−" : ""}{money(Math.abs(report.netCashFlow))}</strong>
+            {!!(prior.cashIn || prior.cashOut) && <small>{change > 0 ? <ArrowUpRight size={14}/> : change < 0 ? <ArrowDownLeft size={14}/> : null}
+              {change ? money(Math.abs(change)) + (change > 0 ? " higher" : " lower") + " than prior month" : "Same as prior month"}</small>}
+          </div>
+        </div>
+        <MovementChart workspace={workspace} month={month}/>
+      </section>
+      <div className="overview-side">
+        <section className="panel month-summary">
+          <SectionHeading title="Monthly summary"/>
+          <dl>{metrics.map(({ name, amount, hint, icon: Icon, color }) => <div className="summary-row" key={name}>
+            <dt><span className={"glyph " + color}><Icon size={17}/></span><span>{name}<small>{hint}</small></span></dt>
+            <dd>{money(amount)}</dd>
+          </div>)}</dl>
+        </section>
       <section className="panel spending-panel">
-        <SectionHeading title="Spending breakdown" subtitle="Your share of expenses by category"/>
+        <SectionHeading title="Spending breakdown" subtitle="Excludes amounts owed to you"/>
         {report.categories.length ? <ul className="category-bars">{report.categories.map((row, index) => <li key={row.id ?? "uncategorized"}>
           <div><span><i className={"category-dot " + (workspace.categories.find(category => category.id === row.id)?.color ?? palette[index % palette.length])}/>{row.name}</span><strong>{money(row.amount)}</strong></div>
           <div className="bar-track" aria-hidden="true"><i className={workspace.categories.find(category => category.id === row.id)?.color ?? palette[index % palette.length]} style={{ width: (row.amount / report.spending * 100) + "%" }}/></div>
         </li>)}</ul> : <Empty title="No spending yet" description="Expenses for this month will appear here." icon={Layers3}/>}
       </section>
+      </div>
     </div>
-    <section className="account-section">
-      <SectionHeading title="Accounts" subtitle={"Balances as of the end of " + monthLabel(month)} />
+    <div className="overview-lower">
+    <section className="panel recent-panel">
+      <SectionHeading title="Recent activity" action={<button className="button quiet" type="button" onClick={onBrowse}>View all <ArrowRight size={15}/></button>}/>
+      {recent.length ? <div className="activity-list">{recent.map(row => <ActivityRow key={row.id} row={row} workspace={workspace} onOpen={onOpen}/>)}</div>
+        : <Empty title="No activity this month" description="Add an entry to start building this month’s record." action={<button type="button" className="button secondary" onClick={onAdd}><Plus size={16}/> Add entry</button>}/>}
+    </section>
+    <section className="panel account-section">
+      <SectionHeading title="Accounts" subtitle="Month-end balances" />
       {report.accounts.length ? <div className="account-grid">{report.accounts.filter(row => !row.account.archived || row.value !== 0).map(row => {
         const Icon = accountIcons[row.account.kind];
-        return <article className="panel account-card" key={row.account.id}>
+        return <article className="account-card" key={row.account.id}>
           <span className={"glyph " + (row.account.kind === "investment" ? "violet" : "green")}><Icon size={19}/></span><div><h3>{row.account.name}</h3><p>{row.account.archived ? "Archived" : row.account.kind}</p></div><strong>{money(row.value)}</strong>
         </article>;
       })}</div> : <div className="panel"><Empty title="No accounts yet" description="Create an account in Settings to start recording entries." icon={Landmark}/></div>}
     </section>
-    <section className="panel recent-panel">
-      <SectionHeading title="Recent activity" subtitle={"Latest entries in " + monthLabel(month)} action={<button className="button quiet" type="button" onClick={onBrowse}>All transactions <ArrowRight size={16}/></button>}/>
-      {recent.length ? <div className="activity-list">{recent.map(row => <ActivityRow key={row.id} row={row} workspace={workspace} onOpen={onOpen}/>)}</div>
-        : <Empty title="No activity this month" description="Add an entry to start building this month’s record." action={<button type="button" className="button secondary" onClick={onAdd}><Plus size={16}/> Add entry</button>}/>}
-    </section>
+    </div>
   </>;
 }
 
@@ -144,14 +167,20 @@ export function Reimbursements({ workspace, month, onReceive, onOpen }: {
     <div className="status-tabs" role="group" aria-label="Filter reimbursements">{["All", "Pending", "Partial", "Settled"].map(label => <button key={label} aria-pressed={status === label} onClick={() => setStatus(label)}>{label}</button>)}</div>
     {!groups.size && <div className="panel"><Empty title="No matching claims" description="Mark an expense as reimbursable when you add it. Claims appear here through the selected month." icon={HandCoins}/></div>}
     {Array.from(groups, ([person, personClaims]) => <section className="claim-group" key={person}><h2>{person}</h2><div className="claim-grid">{personClaims.map(claim => <article className="panel claim-card" key={claim.entry.id}>
-      <div className="claim-top"><span className={"pill " + (claim.status === "Settled" ? "green" : claim.status === "Partial" ? "blue" : "amber")}>{claim.status}</span>{claim.overdue && <span className="pill rose">Overdue</span>}</div>
-      <button className="text-link claim-title" onClick={() => onOpen(claim.entry.id)}>{claim.entry.description}<ArrowRight size={15}/></button>
-      <p>{claim.entry.due_on ? "Due " + dayLabel(claim.entry.due_on) : "Recorded " + dayLabel(claim.entry.occurred_on)}</p>
-      <div className="claim-amount"><span>Outstanding</span><strong>{money(claim.remaining)}</strong></div>
-      <progress aria-label="Reimbursement progress" max={claim.entry.reimbursable_minor} value={claim.paid}/>
-      <div className="claim-caption"><span>{money(claim.paid)} received</span><span>{money(claim.entry.reimbursable_minor)} claimed</span></div>
-      {claim.receipts.length > 0 && <details className="receipt-list"><summary>{claim.receipts.length} {claim.receipts.length === 1 ? "payment" : "payments"}</summary>{claim.receipts.map(receipt => <div key={receipt.id}><span>{dayLabel(receipt.received_on)} · {accountName(workspace, receipt.account_id)}</span><strong>{money(receipt.amount_minor)}</strong></div>)}</details>}
-      {!!claim.remaining && canReceive.has(claim.entry.id) && <button className="button secondary" onClick={() => onReceive(claim.entry.id)}><Plus size={16}/> Receive payment</button>}
+      <div>
+        <div className="claim-top"><span className={"pill " + (claim.status === "Settled" ? "green" : claim.status === "Partial" ? "blue" : "amber")}>{claim.status}</span>{claim.overdue && <span className="pill rose">Overdue</span>}</div>
+        <button className="text-link claim-title" onClick={() => onOpen(claim.entry.id)}>{claim.entry.description}<ArrowRight size={15}/></button>
+        <p>{claim.entry.due_on ? "Due " + dayLabel(claim.entry.due_on) : "Recorded " + dayLabel(claim.entry.occurred_on)}</p>
+      </div>
+      <div>
+        <div className="claim-amount"><span>Outstanding</span><strong>{money(claim.remaining)}</strong></div>
+        <progress aria-label="Reimbursement progress" max={claim.entry.reimbursable_minor} value={claim.paid}/>
+        <div className="claim-caption"><span>{money(claim.paid)} received</span><span>{money(claim.entry.reimbursable_minor)} claimed</span></div>
+      </div>
+      {(claim.receipts.length > 0 || (claim.remaining > 0 && canReceive.has(claim.entry.id))) && <div className="claim-actions">
+        {claim.receipts.length > 0 && <details className="receipt-list"><summary>{claim.receipts.length} {claim.receipts.length === 1 ? "payment" : "payments"}</summary>{claim.receipts.map(receipt => <div key={receipt.id}><span>{dayLabel(receipt.received_on)} · {accountName(workspace, receipt.account_id)}</span><strong>{money(receipt.amount_minor)}</strong></div>)}</details>}
+        {!!claim.remaining && canReceive.has(claim.entry.id) && <button className="button secondary" onClick={() => onReceive(claim.entry.id)}><Plus size={16}/> Receive payment</button>}
+      </div>}
     </article>)}</div></section>)}
   </>;
 }
@@ -167,10 +196,10 @@ export function Investments({ workspace, month, onEntry, onValue, onSettings }: 
       <section className="metric panel"><div><span className="glyph green"><ArrowDownLeft size={19}/></span><h2>Contributed this month</h2></div><strong>{money(report.contribution)}</strong><p>Cash moved into investments</p></section>
       <section className="metric panel"><div><span className="glyph blue"><ArrowUpRight size={19}/></span><h2>Withdrawn this month</h2></div><strong>{money(report.withdrawal)}</strong><p>Cash returned from investments</p></section>
     </div>
-    <SectionHeading title="Holdings" subtitle="Record contributions separately from changes in value."/>
-    {holdings.length ? <div className="claim-grid">{holdings.map(({ account, basis, value, valuation }) => <article className="panel investment-card" key={account.id}>
+    <SectionHeading title="Holdings"/>
+    {holdings.length ? <div className="holdings-grid">{holdings.map(({ account, basis, value, valuation }) => <article className="panel investment-card" key={account.id}>
       <div className="investment-name"><span className="glyph violet"><ChartNoAxesCombined size={20}/></span><div><h3>{account.name}</h3><p>{account.archived ? "Archived" : valuation ? "Valued " + dayLabel(valuation.valued_on) : "Contribution balance"}</p></div></div>
-      <strong className="investment-value">{money(value)}</strong>
+      <div className="investment-estimate"><span>Estimated value</span><strong className="investment-value">{money(value)}</strong></div>
       <dl className="compact-details"><div><dt>Contributed balance</dt><dd>{money(basis)}</dd></div><div><dt>Unrealized change</dt><dd className={value > basis ? "positive" : ""}>{valuation ? (value >= basis ? "+" : "−") + money(Math.abs(value - basis)) : "—"}</dd></div></dl>
       {!account.archived && <div className="button-line"><button className="button secondary" onClick={() => onEntry("investment_contribution", account.id)}>Contribute</button><button className="button secondary" onClick={() => onEntry("investment_withdrawal", account.id)}>Withdraw</button><button className="button quiet" onClick={() => onValue(account.id)}>Update valuation</button></div>}
     </article>)}</div> : <div className="panel"><Empty title="No investment accounts yet" description="Create an investment account to track contributions and valuations." icon={ChartNoAxesCombined} action={<button className="button secondary" onClick={onSettings}>Manage accounts</button>}/></div>}

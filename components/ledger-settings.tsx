@@ -145,36 +145,40 @@ export function Settings({ workspace, cloud, email, onManage, onMove, onReset, o
   const ordered = activeFields(workspace);
   const fields = [...ordered, ...workspace.field_definitions.filter(field => field.archived)];
   const add = (collection: Management["collection"], label: string) => <button className="button secondary" onClick={() => onManage({ collection })}><Plus size={16}/>{label}</button>;
-  return <>
-    <section className="panel settings-panel">
-      <SectionHeading title="Accounts" subtitle="Track balances for bank, wallet, cash and investment accounts." action={add("accounts", "Add account")}/>
-      {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
-        detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Opened " + dayLabel(account.opening_date))}
-        glyph={<span className={"glyph " + (account.kind === "investment" ? "violet" : "green")}><Icon size={18}/></span>}
-        onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a cash account to start entering transactions.</p>}
-    </section>
-    <section className="panel settings-panel">
-      <SectionHeading title="Categories" subtitle="Group income and expenses in reports." action={add("categories", "Add category")}/>
-      {workspace.categories.length ? workspace.categories.map(category => <SettingRow key={category.id} label={category.name}
-        detail={(category.applicable_kind === "expense" ? "Expense" : "Income") + (category.archived ? " · Archived" : "")}
-        glyph={<span className={"category-dot " + category.color}/>}
-        onEdit={() => onManage({ collection: "categories", row: category })}/>) : <p className="setting-empty">Add categories to organize your entries.</p>}
-    </section>
-    <section className="panel settings-panel">
-      <SectionHeading title="Custom fields" subtitle="Add details to both the form and spreadsheet entry modes." action={add("field_definitions", "Add field")}/>
-      {fields.length ? fields.map((field, index) => <SettingRow key={field.id} label={field.label} detail={typeLabels[field.field_type] + (field.required ? " · Required" : " · Optional") + (field.archived ? " · Archived" : "")}
-        onEdit={() => onManage({ collection: "field_definitions", row: field })}>
-        {!field.archived && <><button className="icon-button" aria-label={"Move " + field.label + " up"} disabled={index === 0} onClick={() => onMove(field, -1)}><ArrowUp size={16}/></button><button className="icon-button" aria-label={"Move " + field.label + " down"} disabled={index === ordered.length - 1} onClick={() => onMove(field, 1)}><ArrowDown size={16}/></button></>}
-      </SettingRow>) : <p className="setting-empty">Add a field for references, tags or any details you track.</p>}
-    </section>
-    <section className="panel settings-panel">
-      <SectionHeading title="Workspace" subtitle="Indonesian rupiah (IDR) · Asia/Jakarta reporting dates"/>
-      <div className="storage-card"><span className="glyph green"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Supabase workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? email : "The demo starts with fictional records. Connect Supabase to keep a separate signed-in workspace."}</p></div></div>
-      <div className="button-line">{cloud ? <button className="button secondary" onClick={onSignOut}>Sign out</button> : <>
-        <a className="button secondary" href="https://supabase.com/docs/guides/getting-started" target="_blank" rel="noreferrer">Supabase documentation</a>
-        <button className="button secondary" onClick={onExport}><Download size={16}/> Export demo data</button>
-        <button className="button quiet danger" onClick={onReset}><RotateCcw size={16}/> Reset demo</button>
-      </>}</div>
-    </section>
-  </>;
+  return <div className="settings-grid">
+    <div className="settings-column">
+      <section className="panel settings-panel">
+        <SectionHeading title="Accounts" subtitle="Bank, wallet, cash and investment accounts" action={add("accounts", "Add account")}/>
+        {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
+          detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Opened " + dayLabel(account.opening_date))}
+          glyph={<span className={"glyph " + (account.kind === "investment" ? "violet" : "green")}><Icon size={18}/></span>}
+          onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a cash account to start entering transactions.</p>}
+      </section>
+      <section className="panel settings-panel">
+        <SectionHeading title="Custom fields" subtitle="Fields shared by form and spreadsheet entry" action={add("field_definitions", "Add field")}/>
+        {fields.length ? fields.map((field, index) => <SettingRow key={field.id} label={field.label} detail={typeLabels[field.field_type] + (field.required ? " · Required" : " · Optional") + (field.archived ? " · Archived" : "")}
+          onEdit={() => onManage({ collection: "field_definitions", row: field })}>
+          {!field.archived && <><button className="icon-button" aria-label={"Move " + field.label + " up"} disabled={index === 0} onClick={() => onMove(field, -1)}><ArrowUp size={16}/></button><button className="icon-button" aria-label={"Move " + field.label + " down"} disabled={index === ordered.length - 1} onClick={() => onMove(field, 1)}><ArrowDown size={16}/></button></>}
+        </SettingRow>) : <p className="setting-empty">Add a field for references, tags or any details you track.</p>}
+      </section>
+    </div>
+    <div className="settings-column">
+      <section className="panel settings-panel">
+        <SectionHeading title="Categories" subtitle="Income and spending categories" action={add("categories", "Add category")}/>
+        {workspace.categories.length ? workspace.categories.map(category => <SettingRow key={category.id} label={category.name}
+          detail={(category.applicable_kind === "expense" ? "Expense" : "Income") + (category.archived ? " · Archived" : "")}
+          glyph={<span className={"category-dot " + category.color}/>}
+          onEdit={() => onManage({ collection: "categories", row: category })}/>) : <p className="setting-empty">Add categories to organize your entries.</p>}
+      </section>
+      <section className="panel settings-panel">
+        <SectionHeading title="Workspace" subtitle="Indonesian rupiah (IDR) · Asia/Jakarta reporting dates"/>
+        <div className="storage-card"><span className="glyph green"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Supabase workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? email : "The demo starts with fictional records. Connect Supabase to keep a separate signed-in workspace."}</p></div></div>
+        <div className="button-line">{cloud ? <button className="button secondary" onClick={onSignOut}>Sign out</button> : <>
+          <a className="button secondary" href="https://supabase.com/docs/guides/getting-started" target="_blank" rel="noreferrer">Supabase documentation</a>
+          <button className="button secondary" onClick={onExport}><Download size={16}/> Export demo data</button>
+          <button className="button quiet danger" onClick={onReset}><RotateCcw size={16}/> Reset demo</button>
+        </>}</div>
+      </section>
+    </div>
+  </div>;
 }
