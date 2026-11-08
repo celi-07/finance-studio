@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import { ChartSpline, CircleAlert, Download, HandCoins, LayoutGrid, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
 import { accountName, activeFields, dayLabel, emptyWorkspace, money, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
-import { configured, deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
+import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
+import type { CloudConfig } from "@/lib/ledger-cloud-config";
 import { downloadStatement } from "@/lib/statement";
 import { EntryDialog } from "./ledger-entry";
 import { ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
@@ -27,7 +28,7 @@ type Panel =
 type Identity = { id: string; email?: string };
 type AuthMode = "sign-in" | "sign-up" | "reset" | "recover";
 
-function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered: () => void }) {
+function AuthScreen({ cloud, recovery, onRecovered }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => void }) {
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
@@ -44,7 +45,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
     const origin = window.location.origin + "/";
     setError(""); setMessage(""); setWorking(true);
     try {
-      const auth = getSupabase().auth;
+      const auth = getSupabase(cloud).auth;
       if (current === "recover") {
         const { error: issue } = await auth.updateUser({ password });
         if (issue) throw issue;
@@ -56,7 +57,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
       } else if (current === "sign-up") {
         const { data, error: issue } = await auth.signUp({ email, password, options: { emailRedirectTo: origin } });
         if (issue) throw issue;
-        if (!data.session) setMessage("Check your email for a confirmation link, then return to Ledger.");
+        if (!data.session) setMessage("Check your email and open the confirmation link in this browser.");
       } else {
         const { error: issue } = await auth.signInWithPassword({ email, password });
         if (issue) throw issue;
@@ -65,22 +66,23 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
     finally { setWorking(false); }
   }
   function switchTo(next: AuthMode) { setMode(next); setMessage(""); setError(""); }
-  return <main className="auth-screen"><section className="panel auth-panel"><Brand/><h1>{title}</h1><p>Access your personal finance workspace.</p>
+  return <main className="auth-screen"><section className="panel auth-panel"><Brand/><h1>{title}</h1><p>{current === "sign-up" ? "Create an account to keep your finances in a private workspace." : "Access your personal finance workspace."}</p>
     <form onSubmit={submit}>
-      {current !== "recover" && <Field label="Email"><input required name="email" type="email" autoComplete="email"/></Field>}
+      {current !== "recover" && <Field label="Email"><input required name="email" type="email" autoComplete={current === "reset" ? "email" : "username"}/></Field>}
       {current !== "reset" && <Field label={current === "recover" ? "New password" : "Password"}><input required name="password" type="password" minLength={current === "sign-in" ? undefined : 8} autoComplete={current === "sign-in" ? "current-password" : "new-password"}/></Field>}
       {error && <p className="form-message error" role="alert">{error}</p>}{message && <p className="form-message success" role="status">{message}</p>}
       <button className="button primary" disabled={working}>{working ? "Working…" : label}</button>
     </form>
     {current !== "recover" && <div className="button-line">
-      {current === "sign-in" ? <><button className="button quiet" onClick={() => switchTo("sign-up")}>Create account</button><button className="button quiet" onClick={() => switchTo("reset")}>Forgot password?</button></> : <button className="button quiet" onClick={() => switchTo("sign-in")}>Back to sign in</button>}
+      {current === "sign-in" ? <><button className="button quiet" disabled={working} onClick={() => switchTo("sign-up")}>Create account</button><button className="button quiet" disabled={working} onClick={() => switchTo("reset")}>Forgot password?</button></> : <button className="button quiet" disabled={working} onClick={() => switchTo("sign-in")}>Back to sign in</button>}
     </div>}
   </section></main>;
 }
 
-export default function LedgerApp() {
+export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
+  const configured = cloud !== null;
   const [route, setRoute] = useState<Route>("overview");
-  const [month, setMonth] = useState(demoMonth);
+  const [month, setMonth] = useState(() => configured ? today().slice(0, 7) : demoMonth());
   const [data, setData] = useState<Workspace>(emptyWorkspace);
   const dataRef = useRef(data);
   const [loading, setLoading] = useState(true);
@@ -107,20 +109,19 @@ export default function LedgerApp() {
   }, []);
   useEffect(() => {
     let mounted = true;
-    if (!configured) {
+    if (!cloud) {
       try { update(readDemo()); }
       catch (error) { setProblem(errorText(error)); }
       setLoading(false);
       return;
     }
     try {
-      const supabase = getSupabase();
-      const resetRequested = new URLSearchParams(window.location.search).has("recover");
+      const supabase = getSupabase(cloud);
       const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         if (!mounted) return;
         const user = session?.user ?? null;
         const nextOwner = user?.id ?? null;
-        if ((event === "PASSWORD_RECOVERY" || (event === "INITIAL_SESSION" && resetRequested)) && user) setRecovery(true);
+        if (event === "PASSWORD_RECOVERY" && user) setRecovery(true);
         if (initialized.current && nextOwner === owner.current) return;
         initialized.current = true;
         owner.current = nextOwner;
@@ -130,7 +131,7 @@ export default function LedgerApp() {
         if (!nextOwner) { setRecovery(false); setLoading(false); return; }
         setLoading(true);
         setTimeout(() => {
-          loadCloud(nextOwner).then(workspace => {
+          loadCloud(supabase, nextOwner).then(workspace => {
             if (mounted && owner.current === nextOwner) update(workspace);
           }).catch(error => { if (mounted && owner.current === nextOwner) setProblem(errorText(error)); })
             .finally(() => { if (mounted && owner.current === nextOwner) setLoading(false); });
@@ -138,7 +139,7 @@ export default function LedgerApp() {
       });
       return () => { mounted = false; initialized.current = false; subscription.unsubscribe(); };
     } catch (error) { setProblem(errorText(error)); setLoading(false); }
-  }, []);
+  }, [cloud]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4800);
@@ -167,7 +168,7 @@ export default function LedgerApp() {
     if (configured && !currentOwner) throw Error("Sign in before saving changes.");
     saving.current = true;
     try {
-      if (currentOwner) await upsertCloud(currentOwner, collection, rows);
+      if (cloud && currentOwner) await upsertCloud(getSupabase(cloud), currentOwner, collection, rows);
       if (currentOwner !== owner.current) throw Error("Your account changed while saving. Reopen the entry.");
       const ids = new Set(rows.map(row => row.id));
       const next = { ...dataRef.current, [collection]: [...dataRef.current[collection].filter(row => !ids.has(row.id)), ...rows] };
@@ -180,7 +181,7 @@ export default function LedgerApp() {
     if (dataRef.current.reimbursement_receipts.some(row => row.expense_id === entry.id)) throw Error("This entry has linked payments. The claim and its payments need to stay together.");
     const currentOwner = owner.current;
     if (configured && !currentOwner) throw Error("Sign in before deleting.");
-    if (currentOwner) await deleteCloud(currentOwner, "transactions", entry.id);
+    if (cloud && currentOwner) await deleteCloud(getSupabase(cloud), currentOwner, "transactions", entry.id);
     if (currentOwner !== owner.current) throw Error("Your account changed while deleting.");
     const next = { ...dataRef.current, transactions: dataRef.current.transactions.filter(row => row.id !== entry.id) };
     if (!configured) writeDemo(next);
@@ -206,11 +207,12 @@ export default function LedgerApp() {
     finally { setExporting(false); }
   }
   async function signOut() {
-    try { const { error } = await getSupabase().auth.signOut(); if (error) throw error; }
+    if (!cloud) return;
+    try { const { error } = await getSupabase(cloud).auth.signOut(); if (error) throw error; }
     catch (error) { setProblem(errorText(error)); }
   }
 
-  if (configured && (recovery || (!loading && !identity && !problem))) return <AuthScreen recovery={recovery} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
+  if (cloud && (recovery || (!loading && !identity && !problem))) return <AuthScreen cloud={cloud} recovery={recovery} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
   if (configured && (loading || !identity || problem && data === emptyWorkspace)) return <main className="auth-screen"><section className="panel auth-panel"><Brand/>{problem ? <Empty title="Couldn’t open your workspace" description={problem} action={<div className="button-line"><button className="button secondary" onClick={() => window.location.reload()}>Try again</button>{identity && <button className="button quiet" onClick={signOut}>Sign out</button>}</div>}/> : <p role="status">Opening your workspace…</p>}</section></main>;
 
   const page = routes[route];

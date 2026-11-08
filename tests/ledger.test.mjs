@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { balances, claims, emptyWorkspace, money, monthly, parseDate, parseMoney, validateEntry } from "../lib/ledger.ts";
+import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 
 const month = "2025-02";
 const account = (id, kind, opening_minor = 0) => ({ id, name: id, kind, opening_minor, opening_date: "2025-01-01", archived: false });
@@ -10,6 +11,18 @@ const entry = (id, kind, amount_minor, options = {}) => ({
   counterparty: "", due_on: null, ...options,
 });
 const setup = () => ({ ...emptyWorkspace, accounts: [account("bank", "bank", 100_000), account("wallet", "wallet"), account("fund", "investment")] });
+
+test("only browser-safe Supabase settings reach the client", () => {
+  const url = "https://ledger.example";
+  const legacyKey = role => `header.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.signature`;
+  assert.equal(readCloudConfig(), null);
+  assert.deepEqual(readCloudConfig(url, "sb_publishable_example"), { url, key: "sb_publishable_example" });
+  assert.equal(readCloudConfig(url, legacyKey("anon")).key, legacyKey("anon"));
+  assert.throws(() => readCloudConfig(url, legacyKey("service_role")));
+  assert.throws(() => readCloudConfig(url, "sb_secret_example"));
+  assert.throws(() => readCloudConfig(url));
+  assert.throws(() => readCloudConfig("https://user:password@ledger.example", "sb_publishable_example"));
+});
 
 test("parses rupiah minor units and Jakarta calendar dates without floating-point rounding", () => {
   assert.equal(parseMoney("Rp 125.000,50"), 12_500_050);
