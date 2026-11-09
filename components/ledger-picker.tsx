@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Select } from "@base-ui/react/select";
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
-import { Popover, Select } from "radix-ui";
+import { Popover } from "radix-ui";
 import { monthLabel, shiftMonth } from "@/lib/ledger";
 
 type Option = { value: string; label: string; swatch?: string };
@@ -21,31 +22,47 @@ type PickerProps = {
 export function Picker({ label, options, value, defaultValue = "", onValueChange, name, icon: Icon, disabled, invalid }: PickerProps) {
   const [uncontrolled, setUncontrolled] = useState(defaultValue);
   const [dialog, setDialog] = useState<HTMLDialogElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const scrollDismissal = useRef<HTMLElement | null>(null);
   const selection = value ?? uncontrolled;
   const setTrigger = useCallback((node: HTMLButtonElement | null) => setDialog(node?.closest("dialog") ?? null), []);
 
-  return <Select.Root value={"v" + selection} disabled={disabled} onValueChange={next => {
-    const chosen = next.slice(1);
-    if (value === undefined) setUncontrolled(chosen);
-    onValueChange?.(chosen);
+  useEffect(() => {
+    const scrollArea = dialog?.querySelector<HTMLElement>(":scope > .modal-scroll");
+    if (!open || !scrollArea) return;
+    // The list is portaled beside this region, so only scrolling the form dismisses it.
+    const dismiss = () => { scrollDismissal.current = scrollArea; setOpen(false); };
+    scrollArea.addEventListener("scroll", dismiss, { passive: true, once: true });
+    return () => scrollArea.removeEventListener("scroll", dismiss);
+  }, [dialog, open]);
+
+  return <Select.Root items={options} value={selection} disabled={disabled} modal={!dialog} open={open} onOpenChange={next => {
+    if (next) scrollDismissal.current = null;
+    setOpen(next);
+  }} onValueChange={next => {
+    if (next === null) return;
+    if (value === undefined) setUncontrolled(next);
+    onValueChange?.(next);
   }}>
     {name && <input type="hidden" name={name} value={selection} disabled={disabled}/>}
     <Select.Trigger className="picker-trigger" type="button" aria-label={label} aria-invalid={invalid}
       ref={setTrigger}>
       {Icon && <Icon size={16} className="picker-leading" aria-hidden="true"/>}
-      <span className="picker-value"><Select.Value placeholder="Choose an option"/></span>
-      <Select.Icon asChild><ChevronDown className="picker-chevron" size={15} aria-hidden="true"/></Select.Icon>
+      <Select.Value className="picker-value" placeholder="Choose an option"/>
+      <ChevronDown className="picker-chevron" size={15} aria-hidden="true"/>
     </Select.Trigger>
     <Select.Portal container={dialog ?? undefined}>
-      <Select.Content position="popper" align="start" sideOffset={7} collisionPadding={10} className="picker-menu">
-        <Select.Viewport className="picker-options">
-          {options.map(option => <Select.Item value={"v" + option.value} key={option.value} className="picker-option">
-            {option.swatch && <span className={"category-dot " + option.swatch} aria-hidden="true"/>}
-            <Select.ItemText>{option.label}</Select.ItemText>
-            <Select.ItemIndicator className="picker-check"><Check size={15} strokeWidth={2.4}/></Select.ItemIndicator>
-          </Select.Item>)}
-        </Select.Viewport>
-      </Select.Content>
+      <Select.Positioner alignItemWithTrigger={false} positionMethod="fixed" align="start" sideOffset={7} collisionPadding={10} className="picker-positioner">
+        <Select.Popup className="picker-menu" finalFocus={() => scrollDismissal.current ?? true}>
+          <Select.List className="picker-options">
+            {options.map(option => <Select.Item value={option.value} key={option.value} className="picker-option">
+              {option.swatch && <span className={"category-dot " + option.swatch} aria-hidden="true"/>}
+              <Select.ItemText>{option.label}</Select.ItemText>
+              <Select.ItemIndicator className="picker-check"><Check size={15} strokeWidth={2.4}/></Select.ItemIndicator>
+            </Select.Item>)}
+          </Select.List>
+        </Select.Popup>
+      </Select.Positioner>
     </Select.Portal>
   </Select.Root>;
 }

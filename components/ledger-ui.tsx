@@ -41,11 +41,13 @@ export function Modal({ title, subtitle, onClose, children, wide, locked }: {
   }, []);
   return <dialog ref={ref} aria-labelledby="dialog-title" className={"modal " + (wide ? "modal-wide" : "")}
     onCancel={event => { event.preventDefault(); if (!locked) onClose(); }}>
-    <div className="modal-header">
-      <div><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
-      <button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose} disabled={locked}><X size={20} /></button>
+    <div className="modal-scroll" tabIndex={-1}>
+      <div className="modal-header">
+        <div><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
+        <button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose} disabled={locked}><X size={20} /></button>
+      </div>
+      {children}
     </div>
-    {children}
   </dialog>;
 }
 export function Empty({ title, description, action, icon: Icon = CircleDollarSign }: {
