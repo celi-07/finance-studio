@@ -2,17 +2,18 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { isAuthError } from "@supabase/supabase-js";
-import { ChartNoAxesCombined, CircleAlert, Download, HandCoins, PanelsTopLeft, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
-import { accountCurrency, accountName, activeFields, dayLabel, defaultCurrency, emptyWorkspace, isCurrency, money, today, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
+import { ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
+import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, isCurrency, money, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
 import type { CloudConfig } from "@/lib/ledger-cloud-config";
 import { downloadStatement } from "@/lib/statement";
 import { EntryDialog } from "./ledger-entry";
-import { ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
+import { BookDialog, FinanceGuide, ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
 import { Brand, Empty, Field, Modal } from "./ledger-ui";
 import { Picker, ReportingMonth } from "./ledger-picker";
-import { filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
+import { CombinedOverview, filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
+import { FinanceWelcome, ProviderSignIn } from "./finance-welcome";
 
 const routes = {
   overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
@@ -22,10 +23,11 @@ const routes = {
   settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
 type Route = keyof typeof routes;
+const personalSheet = "personal";
 type Panel =
   | { type: "entry"; original?: Entry; kind?: Kind; preset?: string; bulk?: boolean }
   | { type: "receive"; id: string } | { type: "value"; id: string } | { type: "manage"; edit: Management }
-  | { type: "delete"; entry: Entry } | { type: "receipt"; row: Activity } | { type: "reset" };
+  | { type: "delete"; entry: Entry } | { type: "receipt"; row: Activity } | { type: "reset" } | { type: "guide" } | { type: "book"; book?: FinanceBook };
 type AuthMode = "sign-in" | "sign-up" | "reset" | "recover";
 
 function authMessage(error: unknown, mode: AuthMode) {
@@ -43,7 +45,7 @@ function authMessage(error: unknown, mode: AuthMode) {
   }[mode];
 }
 
-function AuthScreen({ cloud, recovery, onRecovered }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => void }) {
+function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => void; onBack: () => void; returnError: boolean }) {
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
@@ -81,16 +83,19 @@ function AuthScreen({ cloud, recovery, onRecovered }: { cloud: CloudConfig; reco
     finally { setWorking(false); }
   }
   function switchTo(next: AuthMode) { setMode(next); setMessage(""); setError(""); }
-  return <main className="auth-screen"><section className="panel auth-panel"><Brand/><h1>{title}</h1><p>{current === "sign-up" ? "Use your email to create an account." : "Manage your finances in one place."}</p>
-    <form onSubmit={submit}>
+  return <main className="auth-screen"><section className="panel auth-panel"><Brand/><h1>{cloud.authMode === "oauth" ? "Sign in to Finance Studio" : title}</h1><p>{cloud.authMode === "oauth" ? "Use your Google or Apple account to get started." : current === "sign-up" ? "Use your email to create an account." : "Manage your finances in one place."}</p>
+    {returnError && <p className="form-message error" role="alert">Sign-in was interrupted. Choose a sign-in method to try again.</p>}
+    {(cloud.authMode === "oauth" || cloud.authMode === "transition" && current === "sign-in") && <ProviderSignIn cloud={cloud}/>}
+    {cloud.authMode !== "oauth" && <form onSubmit={submit}>
       {current !== "recover" && <Field label="Email"><input required name="email" type="email" autoComplete={current === "reset" ? "email" : "username"}/></Field>}
       {current !== "reset" && <Field label={current === "recover" ? "New password" : "Password"}><input required name="password" type="password" minLength={current === "sign-in" ? undefined : 8} autoComplete={current === "sign-in" ? "current-password" : "new-password"}/></Field>}
       {error && <p className="form-message error" role="alert">{error}</p>}{message && <p className="form-message success" role="status">{message}</p>}
       <button className="button primary" disabled={working}>{working ? "Working…" : label}</button>
-    </form>
-    {current !== "recover" && <div className="button-line">
+    </form>}
+    {cloud.authMode !== "oauth" && current !== "recover" && <div className="button-line">
       {current === "sign-in" ? <><button className="button quiet" disabled={working} onClick={() => switchTo("sign-up")}>Create account</button><button className="button quiet" disabled={working} onClick={() => switchTo("reset")}>Forgot password?</button></> : <button className="button quiet" disabled={working} onClick={() => switchTo("sign-in")}>Back to sign in</button>}
     </div>}
+    {current !== "recover" && <button type="button" className="button quiet" onClick={onBack}>Back to home</button>}
   </section></main>;
 }
 
@@ -99,10 +104,22 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const [route, setRoute] = useState<Route>("overview");
   const [month, setMonth] = useState(() => configured ? today().slice(0, 7) : demoMonth());
   const [preferredCurrency, setPreferredCurrency] = useState<Currency>(defaultCurrency);
+  const [bookId, setBookId] = useState("");
+  const [allSheets, setAllSheets] = useState(true);
+  const [allCurrencies, setAllCurrencies] = useState(true);
+  const [showAccess, setShowAccess] = useState(false);
+  const [returnError, setReturnError] = useState(false);
   const [data, setData] = useState<Workspace>(emptyWorkspace);
-  const availableCurrencies = Array.from(new Set(data.accounts.map(accountCurrency))).sort();
+  const sheets = [{ id: "", name: "Personal" }, ...data.finance_books];
+  const currentSheet = sheets.find(sheet => sheet.id === bookId) ?? sheets[0];
+  const bookData = workspaceForBook(data, currentSheet.id);
+  const showingAllSheets = route === "overview" && allSheets;
+  const reportBase = showingAllSheets ? data : bookData;
+  const availableCurrencies = Array.from(new Set(reportBase.accounts.map(accountCurrency))).sort();
   const currency = availableCurrencies.includes(preferredCurrency) ? preferredCurrency : availableCurrencies[0] ?? defaultCurrency;
-  const reportData = workspaceForCurrency(data, currency);
+  const showingAllCurrencies = route === "overview" && allCurrencies && availableCurrencies.length > 1;
+  const combinedSheets = showingAllSheets && sheets.length > 1;
+  const reportData = workspaceForCurrency(reportBase, currency);
   const dataRef = useRef(data);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
@@ -123,6 +140,12 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       if (!hash || Object.hasOwn(routes, hash)) setRoute((hash || "overview") as Route);
     };
     read();
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("error") || url.hash.startsWith("#error=")) {
+      setShowAccess(true);
+      setReturnError(true);
+      window.history.replaceState(null, "", "/");
+    }
     window.addEventListener("hashchange", read);
     return () => window.removeEventListener("hashchange", read);
   }, []);
@@ -140,11 +163,12 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         if (!mounted) return;
         const user = session?.user ?? null;
         const nextOwner = user?.id ?? null;
-        if (event === "PASSWORD_RECOVERY" && user) setRecovery(true);
+        if (cloud.authMode !== "oauth" && event === "PASSWORD_RECOVERY" && user) setRecovery(true);
         if (initialized.current && nextOwner === owner.current) return;
         initialized.current = true;
         owner.current = nextOwner;
         setSignedIn(Boolean(nextOwner));
+        setBookId(""); setAllSheets(true); setAllCurrencies(true);
         setPreferredCurrency(defaultCurrency);
         setFilters({ search: "", kind: "", account: "" });
         update(emptyWorkspace);
@@ -159,7 +183,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         }, 0);
       });
       return () => { mounted = false; initialized.current = false; subscription.unsubscribe(); };
-    } catch { setProblem("Couldn’t connect to your workspace. Try again in a moment."); setLoading(false); }
+    } catch { setProblem("Couldn’t connect to Finance Studio. Try again in a moment."); setLoading(false); }
   }, [cloud]);
   useEffect(() => {
     if (!notice) return;
@@ -171,8 +195,13 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     if (window.location.hash !== "#" + next) window.history.pushState(null, "", "#" + next);
     window.scrollTo({ top: 0 });
   }
+  function selectSheet(id: string) {
+    setAllSheets(id === "all");
+    if (id !== "all") setBookId(id);
+    setFilters({ search: "", kind: "", account: "" });
+  }
   function openEntry(kind?: Kind, investment?: string, bulk?: boolean) {
-    if (!reportData.accounts.some(account => !account.archived && account.kind !== "investment")) {
+    if (!bookData.accounts.some(account => !account.archived && account.kind !== "investment")) {
       navigate("settings");
       setNotice("Add a bank account, wallet or cash balance to record your first entry.");
       setPanel({ type: "manage", edit: { collection: "accounts" } });
@@ -210,7 +239,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     setNotice("Entry deleted");
   }
   async function moveField(field: Definition, direction: number) {
-    const ordered = activeFields(data);
+    const ordered = activeFields(bookData);
     const index = ordered.findIndex(row => row.id === field.id);
     const other = ordered[index + direction];
     if (!other) return;
@@ -222,18 +251,23 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     setExporting(true); setProblem("");
     try {
       const filtered = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, month, filters, currency) : undefined;
-      await downloadStatement(reportData, month, currency, !configured, filtered);
+      await downloadStatement(reportData, month, currency, !configured, filtered, showingAllSheets ? "All sheets" : currentSheet.name);
       setNotice("Statement downloaded");
     } catch (error) { setProblem(errorText(error)); }
     finally { setExporting(false); }
   }
   async function signOut() {
     if (!cloud) return;
-    try { const { error } = await getSupabase(cloud).auth.signOut(); if (error) throw error; }
+    try {
+      const { error } = await getSupabase(cloud).auth.signOut({ scope: "local" });
+      if (error) throw error;
+      setShowAccess(false); setReturnError(false);
+    }
     catch { setProblem("Couldn’t sign out. Try again in a moment."); }
   }
 
-  if (cloud && (recovery || (!loading && !signedIn && !problem))) return <AuthScreen cloud={cloud} recovery={recovery} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
+  if (cloud && (recovery || (!loading && !signedIn && !problem && showAccess))) return <AuthScreen cloud={cloud} recovery={recovery} returnError={returnError} onBack={() => { setShowAccess(false); setReturnError(false); }} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
+  if ((!configured && !showAccess) || configured && !loading && !signedIn && !problem) return <FinanceWelcome demo={!configured} onStart={() => setShowAccess(true)}/>;
   if (configured && (loading || !signedIn || problem && data === emptyWorkspace)) return <main className="auth-screen"><section className="panel auth-panel"><Brand/>{problem ? <Empty title="Couldn’t load your records" description={problem} action={<div className="button-line"><button className="button secondary" onClick={() => window.location.reload()}>Try again</button>{signedIn && <button className="button quiet" onClick={signOut}>Sign out</button>}</div>}/> : <p role="status">Loading your records…</p>}</section></main>;
 
   const page = routes[route];
@@ -255,41 +289,55 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       <div className="page">
         <header className="page-heading" key={"heading-" + route}><div className="page-title"><h1>{page.label}</h1>{page.caption && <p>{page.caption}</p>}</div>
           <div className={"header-actions" + (route === "settings" ? "" : " reporting-actions")}>
+            <div className="report-sheet"><Picker label="Finance sheet" icon={Layers3} value={showingAllSheets ? "all" : currentSheet.id || personalSheet}
+              options={[...(route === "overview" ? [{ value: "all", label: "All sheets" }] : []), ...sheets.map(sheet => ({ value: sheet.id || personalSheet, label: sheet.name }))]}
+              onValueChange={value => selectSheet(value === personalSheet ? "" : value)}/></div>
             {route !== "settings" && <ReportingMonth value={month} onChange={setMonth}/>}
-            {route !== "settings" && availableCurrencies.length > 1 && <div className="report-currency"><Picker label="Reporting currency" value={currency}
-              options={availableCurrencies.map(code => ({ value: code, label: code }))} onValueChange={code => {
-                if (isCurrency(code)) { setPreferredCurrency(code); setFilters(previous => ({ ...previous, account: "" })); }
+            {route !== "settings" && availableCurrencies.length > 1 && <div className="report-currency"><Picker label="Reporting currency" value={showingAllCurrencies ? "all" : currency}
+              options={[...(route === "overview" ? [{ value: "all", label: "All currencies" }] : []), ...availableCurrencies.map(code => ({ value: code, label: code }))]} onValueChange={code => {
+                setAllCurrencies(code === "all");
+                if (isCurrency(code)) setPreferredCurrency(code);
+                setFilters(previous => ({ ...previous, account: "" }));
               }}/></div>}
-            {route !== "settings" && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} onClick={makePdf} disabled={exporting || loading}>
+            {route !== "settings" && !showingAllCurrencies && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} onClick={makePdf} disabled={exporting || loading}>
               <Download size={17}/><span className="desktop-export">{exporting ? "Preparing…" : "Download PDF"}</span><span className="compact-export" aria-hidden="true">{exporting ? "Saving…" : "PDF"}</span>
             </button>}
             {route === "transactions" && <button className="button secondary sheet-action" onClick={() => openEntry(undefined, undefined, true)}><Sheet size={17}/> Spreadsheet</button>}
-            <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>
+            {route === "settings" ? <>
+              <button className="button primary" onClick={() => setPanel({ type: "book" })}><Plus size={17}/> Add sheet</button>
+              {currentSheet.id && <button className="button quiet" onClick={() => setPanel({ type: "book", book: currentSheet })}><Pencil size={16}/> Rename sheet</button>}
+              {configured && <button className="button quiet" onClick={signOut}><LogOut size={16}/> Sign out</button>}
+            </> : !combinedSheets && <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>}
           </div>
         </header>
         {problem && <div className="form-message error" role="alert"><CircleAlert size={18}/>{problem}<button className="button quiet" onClick={() => setProblem("")}>Dismiss</button></div>}
-        {loading && <div className="panel"><Empty title="Opening your workspace" description="Loading entries and accounts…"/></div>}
+        {loading && <div className="panel"><Empty title="Opening Finance Studio" description="Loading entries and accounts…"/></div>}
         <div className="page-content" key={"content-" + route}>
-          {!loading && route === "overview" && <Overview workspace={reportData} month={month} currency={currency} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>}
+          {!loading && route === "overview" && (combinedSheets || showingAllCurrencies
+            ? <CombinedOverview workspace={reportBase} month={month} currencies={showingAllCurrencies ? availableCurrencies : [currency]} allSheets={combinedSheets} onOpenSheet={selectSheet}/>
+            : <Overview workspace={reportData} month={month} currency={currency} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>)}
           {!loading && route === "transactions" && <Transactions workspace={reportData} month={month} currency={currency} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
           {!loading && route === "reimbursements" && <Reimbursements workspace={reportData} month={month} currency={currency} onReceive={id => setPanel({ type: "receive", id })}
             onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
           {!loading && route === "investments" && <Investments workspace={reportData} month={month} currency={currency} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
-          {!loading && route === "settings" && <Settings workspace={data} cloud={configured} onManage={edit => setPanel({ type: "manage", edit })}
-            onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onSignOut={signOut}/>}
+          {!loading && route === "settings" && <Settings workspace={bookData} cloud={configured} onManage={edit => setPanel({ type: "manage", edit })}
+            onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onGuide={() => setPanel({ type: "guide" })}/>}
         </div>
         <footer className="footer"><span>Finance Studio</span></footer>
       </div>
     </main>
-    {panel?.type === "entry" && <EntryDialog workspace={reportData} month={month} currency={currency} original={panel.original} kind={panel.kind} preset={panel.preset} initialBulk={panel.bulk} onClose={close}
+    {panel?.type === "entry" && <EntryDialog workspace={bookData} month={month} currency={currency} original={panel.original} kind={panel.kind} preset={panel.preset} initialBulk={panel.bulk} onClose={close}
       onDelete={entry => setPanel({ type: "delete", entry })} onSave={async entries => {
         await save("transactions", entries);
-        if (!panel.original && entries.length === 1) setMonth(entries[0].occurred_on.slice(0, 7));
+        if (!panel.original && entries.length === 1) { setMonth(entries[0].occurred_on.slice(0, 7)); setPreferredCurrency(currencyForAccount(bookData, entries[0].account_id)); }
       }}/>}
-    {panel?.type === "manage" && <ManagementDialog workspace={data} edit={panel.edit} initialCurrency={currency} close={close} save={save}/>}
-    {panel?.type === "receive" && <ReceiptDialog workspace={reportData} expenseId={panel.id} close={close} save={save}/>}
-    {panel?.type === "value" && <ValueDialog workspace={data} accountId={panel.id} close={close} save={save}/>}
-    {panel?.type === "delete" && <TaskForm title="Delete this entry?" subtitle={panel.entry.description + " · " + money(panel.entry.amount_minor, currency)} close={close} submit={() => removeEntry(panel.entry)} label="Delete entry">
+    {panel?.type === "guide" && <FinanceGuide close={close}/>}
+    {panel?.type === "book" && <BookDialog book={panel.book} books={data.finance_books} close={close} onSave={async book => { await save("finance_books", [book]); selectSheet(book.id); }}/>}
+    {panel?.type === "manage" && <ManagementDialog workspace={bookData} edit={panel.edit} initialCurrency={currency} close={close}
+      save={(collection, rows) => save(collection, rows.map(row => ({ ...row, ledger_id: currentSheet.id || null })) as typeof rows)}/>}
+    {panel?.type === "receive" && <ReceiptDialog workspace={bookData} expenseId={panel.id} close={close} save={save}/>}
+    {panel?.type === "value" && <ValueDialog workspace={bookData} accountId={panel.id} close={close} save={save}/>}
+    {panel?.type === "delete" && <TaskForm title="Delete this entry?" subtitle={panel.entry.description + " · " + money(panel.entry.amount_minor, currencyForAccount(data, panel.entry.account_id))} close={close} submit={() => removeEntry(panel.entry)} label="Delete entry">
       <p className="full muted">This permanently removes the entry and updates the related balances.</p>
     </TaskForm>}
     {panel?.type === "receipt" && panel.row.receipt && <Modal title="Reimbursement payment" subtitle={panel.row.title} onClose={close}>
@@ -297,7 +345,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       <div className="modal-footer"><button className="button secondary" onClick={close}>Done</button></div>
     </Modal>}
     {panel?.type === "reset" && <TaskForm title="Reset demo data?" subtitle="This replaces the entries and settings saved in this browser with the original fictional data." close={close} label="Reset demo"
-      submit={async () => { const fresh = createDemo(); writeDemo(fresh); update(fresh); setMonth(today().slice(0, 7)); setProblem(""); setNotice("Demo reset"); }}/>}
+      submit={async () => { const fresh = createDemo(); writeDemo(fresh); update(fresh); setBookId(""); setAllSheets(true); setMonth(today().slice(0, 7)); setProblem(""); setNotice("Demo reset"); }}/>}
     {notice && <div className="toast" role="status"><ShieldCheck size={18}/>{notice}</div>}
   </div>;
 }

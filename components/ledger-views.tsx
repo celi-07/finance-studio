@@ -6,7 +6,7 @@ import {
   FileClock, HandCoins, Landmark, Layers3, ListFilter, Plus, Search, ShoppingBag, TicketCheck, WalletCards, type LucideIcon,
 } from "lucide-react";
 import {
-  accountName, activity, claims, dayLabel, kinds, majorAmount, money, monthly, monthLabel, shiftMonth,
+  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, monthly, monthLabel, shiftMonth, workspaceForBook,
   type Activity, type Currency, type Kind, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, ActivityRow, Empty, palette } from "./ledger-ui";
@@ -14,6 +14,31 @@ import { Picker } from "./ledger-picker";
 
 export function SectionHeading({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return <div className="section-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>;
+}
+
+export function CombinedOverview({ workspace, month, currencies, allSheets, onOpenSheet }: {
+  workspace: Workspace; month: string; currencies: Currency[]; allSheets: boolean; onOpenSheet: (id: string) => void;
+}) {
+  const sheets = [{ id: "", name: "Personal" }, ...workspace.finance_books];
+  return <div className="combined-overview">
+    <SectionHeading title={allSheets ? "All sheets at a glance" : "Balances by currency"} subtitle={`${monthLabel(month)} · Each currency has its own totals`}/>
+    <div className="combined-grid">{currencies.map(currency => {
+      const report = monthly(workspace, month, currency);
+      return <section className="panel combined-card" key={currency}>
+        <h2>{currency}</h2><p>Cash balance</p><strong>{money(report.cash, currency)}</strong>
+        <dl className="compact-details">{([["Income", report.income], ["Spending", report.spending], ["Owed to you", report.receivable], ["Investments", report.invested]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{money(value, currency)}</dd></div>)}</dl>
+      </section>;
+    })}</div>
+    {allSheets && <section className="panel combined-sheets"><SectionHeading title="Finance sheets" subtitle="Open a sheet to see its detailed reports and entries"/>
+      {sheets.map(sheet => {
+        const scope = workspaceForBook(workspace, sheet.id);
+        const codes = currencies.filter(currency => scope.accounts.some(account => accountCurrency(account) === currency));
+        return <button type="button" className="combined-sheet-row" key={sheet.id} onClick={() => onOpenSheet(sheet.id)}>
+          <strong>{sheet.name}</strong><span>{codes.length ? codes.map(code => money(monthly(scope, month, code).cash, code)).join(" · ") : "No balances for this view"}</span><ArrowRight size={16} aria-hidden="true"/>
+        </button>;
+      })}
+    </section>}
+  </div>;
 }
 
 function MovementChart({ workspace, month, currency }: { workspace: Workspace; month: string; currency: Currency }) {

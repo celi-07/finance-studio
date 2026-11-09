@@ -3,7 +3,7 @@
 import { useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import {
-  activeFields, amountExample, blankDraft, currencyLabel, draftFrom, editableAccounts, kinds, needsDestination, validateEntry,
+  accountCurrency, activeFields, amountExample, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, kinds, needsDestination, validateEntry, workspaceForCurrency,
   type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
@@ -38,9 +38,14 @@ function CustomInput({ definition, value, set, invalid, prior }: {
 }
 
 export function EntryDialog({ workspace, month, currency, original, kind, preset, initialBulk, onSave, onDelete, onClose }: Props) {
-  const unit = currencyLabel(currency);
-  const make = () => blankDraft(workspace, month, kind, preset);
-  const [draft, setDraft] = useState(() => original ? draftFrom(original, currency) : make());
+  const make = () => {
+    const scope = workspaceForCurrency(workspace, preset ? currencyForAccount(workspace, preset) : currency);
+    return blankDraft(scope.accounts.length ? scope : workspace, month, kind, preset);
+  };
+  const originalCurrency = original ? currencyForAccount(workspace, original.account_id) : currency;
+  const [draft, setDraft] = useState(() => original ? draftFrom(original, originalCurrency) : make());
+  const entryCurrency = draft.account_id ? currencyForAccount(workspace, draft.account_id) : currency;
+  const unit = currencyLabel(entryCurrency);
   const [bulk, setBulk] = useState(!!initialBulk);
   const [rows, setRows] = useState<EntryDraft[]>(() => Array.from({ length: 3 }, make));
   const [rowErrors, setRowErrors] = useState<Record<string, Record<string, string>>>({});
@@ -51,10 +56,11 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const fields = activeFields(workspace);
   const activeCategories = workspace.categories.filter(category => category.applicable_kind === draft.kind && (!category.archived || original?.category_id === category.id));
   const set = <K extends keyof EntryDraft,>(key: K, value: EntryDraft[K]) => setDraft(current => ({ ...current, [key]: value }));
-  const availableAccounts = (destination: boolean) => editableAccounts(workspace, draft.kind, destination, destination ? original?.destination_account_id : original?.account_id);
+  const availableAccounts = (destination: boolean) => editableAccounts(workspace, draft.kind, destination, destination ? original?.destination_account_id : original?.account_id)
+    .filter(account => destination ? accountCurrency(account) === entryCurrency : !original || accountCurrency(account) === originalCurrency);
   const fixedColumns = [
-    ["occurred_on", "Date"], ["kind", "Type"], ["description", "Description"], ["amount", `Amount (${unit})`], ["account_id", "Account"],
-    ["category_id", "Category"], ["destination_account_id", "Destination"], ["reimbursable", `Claim (${unit})`],
+    ["occurred_on", "Date"], ["kind", "Type"], ["description", "Description"], ["amount", "Amount"], ["account_id", "Account"],
+    ["category_id", "Category"], ["destination_account_id", "Destination"], ["reimbursable", "Claim amount"],
     ["counterparty", "Owed by"], ["due_on", "Due date"], ["notes", "Notes"],
   ] as const;
   const columns = [...fixedColumns, ...fields.map(field => [field.id, field.label] as const)];
@@ -155,7 +161,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
-      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names, dates like 2026-11-07 or 07/11/2026, and {currency} amounts like {amountExample(currency)}. Scroll the grid for optional fields.</p></div>
+      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter amounts like {amountExample("IDR")} for IDR or {amountExample("USD")} for USD, and dates like 2026-11-07 or 07/11/2026.</p></div>
       <div className="grid-scroll" tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label]) => <th key={key} scope="col" className={"col-" + key}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id}><th scope="row">{index + 1}</th>
@@ -184,8 +190,9 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
         <Field label="Description" error={errors.description} full><input value={draft.description} placeholder="e.g. Grocery run" aria-invalid={!!errors.description} onChange={event => set("description", event.target.value)} /></Field>
         <Field label={needsDestination(draft.kind) ? "From account" : "Account"} error={errors.account_id}>
           <Picker label={needsDestination(draft.kind) ? "From account" : "Account"} value={draft.account_id} invalid={!!errors.account_id}
-            onValueChange={id => set("account_id", id)}
-            options={[{ value: "", label: "Choose account" }, ...availableAccounts(false).map(account => ({ value: account.id, label: account.name }))]}/>
+            onValueChange={id => setDraft(current => ({ ...current, account_id: id,
+              destination_account_id: current.destination_account_id && currencyForAccount(workspace, current.destination_account_id) === currencyForAccount(workspace, id) ? current.destination_account_id : null }))}
+            options={[{ value: "", label: "Choose account" }, ...availableAccounts(false).map(account => ({ value: account.id, label: `${account.name} · ${accountCurrency(account)}` }))]}/>
         </Field>
         {needsDestination(draft.kind) ? <Field label="To account" error={errors.destination_account_id}>
           <Picker label="To account" value={draft.destination_account_id ?? ""} invalid={!!errors.destination_account_id}

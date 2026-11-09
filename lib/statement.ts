@@ -1,17 +1,18 @@
 import type { Activity, Currency, Workspace } from "./ledger";
 import { accountName, activity, activityLabel, activityMoney, dayLabel, money, monthly, monthLabel, today } from "./ledger";
 
-export async function downloadStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, filtered?: Activity[]) {
+export async function downloadStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, filtered?: Activity[], sheet?: string) {
   const response = await fetch("/DejaVuSans.ttf");
   if (!response.ok) throw Error("The statement font could not be loaded. Try the download again.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   let binary = "";
   for (let start = 0; start < bytes.length; start += 8192) binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
-  const pdf = await createStatement(workspace, month, currency, demo, btoa(binary), filtered);
-  pdf.save("finance-studio-" + month + "-" + currency.toLowerCase() + (demo ? "-demo" : "") + ".pdf");
+  const pdf = await createStatement(workspace, month, currency, demo, btoa(binary), filtered, sheet);
+  const sheetSlug = sheet?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
+  pdf.save(["finance-studio", sheetSlug, month, currency.toLowerCase(), demo ? "demo" : ""].filter(Boolean).join("-") + ".pdf");
 }
 
-export async function createStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, font: string, filtered?: Activity[]) {
+export async function createStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, font: string, filtered?: Activity[], sheet?: string) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const report = monthly(workspace, month, currency);
   const rows = filtered ?? activity(workspace, month, currency);
@@ -38,6 +39,10 @@ export async function createStatement(workspace: Workspace, month: string, curre
   pdf.text("Monthly statement", 15, 38);
   pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(10);
   pdf.text(monthLabel(month) + "  /  " + currency, 15, 46);
+  if (sheet) {
+    pdf.setFont("DejaVuSans", "normal"); pdf.setFontSize(8);
+    pdf.text(safe(sheet).replace(/\n/g, " "), 78, 46, { maxWidth: demo ? 86 : 117 });
+  }
   if (demo) { pdf.setFont("helvetica", "bold"); pdf.setTextColor(accent); pdf.text("DEMO DATA", 195, 46, { align: "right" }); }
   pdf.setFillColor("#eef2fb"); pdf.roundedRect(15, 52, 180, 20, 2, 2, "F");
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(muted);

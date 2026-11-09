@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, claims, draftFrom, emptyWorkspace, money, monthly, parseDate, parseMoney, validateEntry } from "../lib/ledger.ts";
+import { activity, balances, claims, draftFrom, emptyWorkspace, money, monthly, parseDate, parseMoney, validateEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 
 const month = "2025-02";
@@ -79,6 +79,30 @@ test("accounts include openings and transfers while monthly income and spending 
   assert.equal(report.spending, 10_000);
   assert.equal(report.accounts.find(row => row.account.id === "wallet").value, 20_000);
   assert.equal(monthly(workspace, "2025-03").income, 1_000);
+});
+
+test("separates finance sheets while combining only like currencies", () => {
+  const workspace = setup();
+  workspace.finance_books = [{ id: "business", name: "Business" }];
+  workspace.accounts.push(
+    { ...account("business-bank", "bank"), ledger_id: "business" },
+    { ...account("business-usd", "bank"), ledger_id: "business", currency: "USD" },
+  );
+  workspace.transactions = [
+    entry("personal-income", "income", 25_000),
+    entry("business-income", "income", 70_000, { account_id: "business-bank" }),
+    entry("business-usd-income", "income", 50_000, { account_id: "business-usd" }),
+  ];
+  const personal = workspaceForBook(workspace, "");
+  const business = workspaceForBook(workspace, "business");
+  assert.deepEqual(personal.transactions.map(row => row.id), ["personal-income"]);
+  assert.deepEqual(business.accounts.map(row => row.id), ["business-bank", "business-usd"]);
+  assert.equal(monthly(business, month).income, 70_000);
+  assert.equal(monthly(workspace, month).income, 95_000);
+  assert.equal(monthly(workspace, month, "USD").income, 50_000);
+  const personalIncome = draftFrom(workspace.transactions[0], "IDR");
+  assert.equal(validateEntry(workspace, { ...personalIncome, account_id: "business-bank" }).errors.account_id,
+    "Keep the entry in its original sheet.");
 });
 
 test("partial reimbursement changes cash and outstanding claims without double counting spending", () => {

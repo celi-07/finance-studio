@@ -25,9 +25,11 @@ export type AccountKind = "bank" | "wallet" | "cash" | "investment";
 export type FieldType = "text" | "number" | "date" | "select" | "checkbox";
 export type FieldValue = string | number | boolean;
 // Saved demo accounts from before currency support use IDR.
-export type Account = { id: string; name: string; kind: AccountKind; currency?: Currency; opening_minor: number; opening_date: string; archived: boolean };
-export type Category = { id: string; name: string; applicable_kind: "income" | "expense"; color: string; archived: boolean };
-export type Field = { id: string; label: string; field_type: FieldType; options: string[]; required: boolean; position: number; archived: boolean };
+export type FinanceBook = { id: string; name: string };
+type BookRecord = { ledger_id?: string | null };
+export type Account = BookRecord & { id: string; name: string; kind: AccountKind; currency?: Currency; opening_minor: number; opening_date: string; archived: boolean };
+export type Category = BookRecord & { id: string; name: string; applicable_kind: "income" | "expense"; color: string; archived: boolean };
+export type Field = BookRecord & { id: string; label: string; field_type: FieldType; options: string[]; required: boolean; position: number; archived: boolean };
 export type Entry = {
   id: string; occurred_on: string; kind: Kind; description: string; amount_minor: number; account_id: string;
   destination_account_id: string | null; category_id: string | null; notes: string;
@@ -36,6 +38,7 @@ export type Entry = {
 export type Receipt = { id: string; expense_id: string; account_id: string; received_on: string; amount_minor: number; notes: string };
 export type Valuation = { id: string; investment_account_id: string; valued_on: string; value_minor: number };
 export type Workspace = {
+  finance_books: FinanceBook[];
   accounts: Account[]; categories: Category[]; field_definitions: Field[];
   transactions: Entry[]; reimbursement_receipts: Receipt[]; investment_valuations: Valuation[];
 };
@@ -45,7 +48,7 @@ export type EntryDraft = Omit<Entry, "amount_minor" | "reimbursable_minor" | "cu
 };
 
 export const emptyWorkspace: Workspace = {
-  accounts: [], categories: [], field_definitions: [], transactions: [],
+  finance_books: [], accounts: [], categories: [], field_definitions: [], transactions: [],
   reimbursement_receipts: [], investment_valuations: [],
 };
 const jakarta = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -100,8 +103,7 @@ export const newId = () => crypto.randomUUID();
 export const accountName = (workspace: Workspace, id: string) => workspace.accounts.find(account => account.id === id)?.name ?? "Unknown account";
 export const accountCurrency = (account?: Account): Currency => account?.currency ?? defaultCurrency;
 export const currencyForAccount = (workspace: Workspace, id: string) => accountCurrency(workspace.accounts.find(account => account.id === id));
-export function workspaceForCurrency(workspace: Workspace, currency: Currency): Workspace {
-  const accounts = workspace.accounts.filter(account => accountCurrency(account) === currency);
+function workspaceWithAccounts(workspace: Workspace, accounts: Account[]): Workspace {
   const accountIds = new Set(accounts.map(account => account.id));
   const transactions = workspace.transactions.filter(entry => accountIds.has(entry.account_id));
   const entryIds = new Set(transactions.map(entry => entry.id));
@@ -109,6 +111,14 @@ export function workspaceForCurrency(workspace: Workspace, currency: Currency): 
     reimbursement_receipts: workspace.reimbursement_receipts.filter(receipt => accountIds.has(receipt.account_id) && entryIds.has(receipt.expense_id)),
     investment_valuations: workspace.investment_valuations.filter(row => accountIds.has(row.investment_account_id)),
   };
+}
+export function workspaceForCurrency(workspace: Workspace, currency: Currency): Workspace {
+  return workspaceWithAccounts(workspace, workspace.accounts.filter(account => accountCurrency(account) === currency));
+}
+export function workspaceForBook(workspace: Workspace, bookId: string): Workspace {
+  const inBook = (row: BookRecord) => (row.ledger_id ?? "") === bookId;
+  return workspaceWithAccounts({ ...workspace, categories: workspace.categories.filter(inBook), field_definitions: workspace.field_definitions.filter(inBook) },
+    workspace.accounts.filter(inBook));
 }
 export const categoryName = (workspace: Workspace, id: string | null) => workspace.categories.find(category => category.id === id)?.name ?? "Uncategorized";
 export const needsDestination = (kind: string) => kind === "transfer" || kind.startsWith("investment_");
@@ -158,12 +168,14 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft): Validati
   if (!sourceAccount) errors.account_id = "Choose a valid account.";
   else if (date && date < sourceAccount.opening_date) errors.account_id = "Choose an account open on the entry date.";
   else if (existing && currencyForAccount(workspace, existing.account_id) !== currency) errors.account_id = "Keep the entry in its original currency.";
+  else if (existing && (workspace.accounts.find(account => account.id === existing.account_id)?.ledger_id ?? null) !== (sourceAccount.ledger_id ?? null)) errors.account_id = "Keep the entry in its original sheet.";
   if (needsDestination(draft.kind)) {
     if (!targetAccount || destination === draft.account_id) errors.destination_account_id = "Choose a different destination account.";
     else if (accountCurrency(targetAccount) !== currency) errors.destination_account_id = "Choose a destination in the same currency.";
+    else if ((targetAccount.ledger_id ?? null) !== (sourceAccount?.ledger_id ?? null)) errors.destination_account_id = "Choose a destination in the same sheet.";
     else if (date && date < targetAccount.opening_date) errors.destination_account_id = "Choose an account open on the entry date.";
   }
-  if (category && !workspace.categories.some(item => item.id === category && item.applicable_kind === kind && (!item.archived || existing?.category_id === item.id))) errors.category_id = "Choose a category that matches this type.";
+  if (category && !workspace.categories.some(item => item.id === category && item.applicable_kind === kind && (item.ledger_id ?? null) === (sourceAccount?.ledger_id ?? null) && (!item.archived || existing?.category_id === item.id))) errors.category_id = "Choose a category that matches this type and sheet.";
   if (reimbursable === null || reimbursable > (amount ?? 0)) errors.reimbursable = "The claim must be between zero and the expense amount.";
   if (reimbursable && !counterparty) errors.counterparty = "Enter who owes this reimbursement.";
   if (reimbursable && draft.due_on && (!due || (date && due < date))) errors.due_on = "Choose a due date on or after the expense date.";

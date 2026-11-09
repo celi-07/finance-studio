@@ -1,4 +1,4 @@
-export type CloudConfig = { url: string; key: string };
+export type CloudConfig = { url: string; key: string; authMode?: "transition" | "oauth" };
 
 function isPublicKey(key: string) {
   if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(key)) return true;
@@ -25,9 +25,10 @@ export function readCloudConfig(rawUrl?: string, rawKey?: string): CloudConfig |
   return { url, key };
 }
 
-export function configuredCloud(env: Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY">) {
-  if (env.SUPABASE_URL?.trim() || env.SUPABASE_PUBLISHABLE_KEY?.trim()) {
-    return readCloudConfig(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY);
-  }
-  return readCloudConfig(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+export function configuredCloud(env: Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY" | "FINANCE_AUTH_MODE">): CloudConfig | null {
+  const cloud = env.SUPABASE_URL?.trim() || env.SUPABASE_PUBLISHABLE_KEY?.trim()
+    ? readCloudConfig(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY)
+    : readCloudConfig(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+  const authMode = (env.FINANCE_AUTH_MODE ?? process.env.FINANCE_AUTH_MODE)?.trim();
+  return cloud && (authMode === "transition" || authMode === "oauth") ? { ...cloud, authMode } : cloud;
 }

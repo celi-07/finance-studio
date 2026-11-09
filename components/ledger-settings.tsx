@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
 import {
   accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, isCurrency, money, newId, parseDate, parseMoney, today,
-  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type Receipt, type Valuation, type Workspace,
+  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, Field, Modal, palette } from "./ledger-ui";
 import { Picker } from "./ledger-picker";
@@ -153,21 +153,54 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
 function SettingRow({ label, detail, glyph, onEdit, children }: { label: string; detail: string; glyph?: ReactNode; onEdit: () => void; children?: ReactNode }) {
   return <div className="setting-row">{glyph}<div><strong>{label}</strong><small>{detail}</small></div>{children}<button className="icon-button" aria-label={"Edit " + label} onClick={onEdit}><Pencil size={17}/></button></div>;
 }
-export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport, onSignOut }: {
+export function BookDialog({ book, books, onSave, close }: { book?: FinanceBook; books: FinanceBook[]; onSave: (book: FinanceBook) => Promise<void>; close: () => void }) {
+  const [id] = useState(newId);
+  return <TaskForm title={book ? "Rename sheet" : "Add finance sheet"} subtitle="Give this part of your finances its own accounts, categories and entries." close={close} label={book ? "Save name" : "Create sheet"} submit={async data => {
+    const name = value(data, "name");
+    if (!name || name.length > 60) throw Error("Enter a sheet name up to 60 characters.");
+    if (name.toLowerCase() === "personal" || books.some(item => item.id !== book?.id && item.name.toLowerCase() === name.toLowerCase())) throw Error("A sheet with this name already exists.");
+    await onSave({ id: book?.id ?? id, name });
+  }}><Field label="Sheet name" full><input name="name" defaultValue={book?.name} placeholder="e.g. Small business" maxLength={60} required/></Field></TaskForm>;
+}
+
+const guideSteps = [
+  ["Set up your sheets", "Start in Personal or use Add sheet to create a separate place for a business or investments. Use the sheet picker to switch before making changes."],
+  ["Add your financial accounts", "Open Settings → Financial accounts. Add a bank account, wallet, cash balance or investment account. Choose its currency, then enter the balance and date from which you want to start tracking."],
+  ["Record income and spending", "Choose Add entry. Select an account and enter the amount in its currency. For a batch, switch to Spreadsheet and paste rows with the account names from the current sheet."],
+  ["Track reimbursements", "Mark an expense as reimbursable and enter the claim amount and who owes it. Open Reimbursements to record payments into an account on the same sheet and in the same currency."],
+  ["Track investments", "Add an investment account, then record contributions or withdrawals between accounts in the same sheet and currency. In Investments, use Update valuation to record its current total value."],
+  ["Review and export", "Choose a reporting month. Overview can show one sheet or All sheets, with each currency totaled separately. Select a currency to open the detailed view or download its monthly PDF."],
+  ["Customize your entry form", "In Settings, create income or expense categories and add custom fields such as an invoice reference. Fields appear in both the form and the spreadsheet."],
+] as const;
+
+export function FinanceGuide({ close }: { close: () => void }) {
+  return <Modal title="Finance Studio guide" subtitle="Set up your records, then follow the steps you need." onClose={close}>
+    <ol className="guide-steps">{guideSteps.map(([title, body], index) => <li key={title}><details open={index === 0 || undefined}><summary>{title}</summary><p>{body}</p></details></li>)}</ol>
+    <div className="modal-footer"><a className="button quiet push" href="mailto:whiteeorangee@gmail.com">Contact support</a><button className="button secondary" onClick={close}>Done</button></div>
+  </Modal>;
+}
+
+export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport, onGuide }: {
   workspace: Workspace; cloud: boolean; onManage: (edit: Management) => void; onMove: (field: Definition, direction: number) => void;
-  onReset: () => void; onExport: () => void; onSignOut: () => void;
+  onReset: () => void; onExport: () => void; onGuide: () => void;
 }) {
   const ordered = activeFields(workspace);
   const fields = [...ordered, ...workspace.field_definitions.filter(field => field.archived)];
   const add = (collection: Management["collection"], label: string) => <button className="button secondary" onClick={() => onManage({ collection })}><Plus size={16}/>{label}</button>;
   return <div className="settings-grid">
-    <div className="settings-column">
-      <section className="panel settings-panel">
+      <section className="panel settings-panel settings-accounts">
         <SectionHeading title="Financial accounts" subtitle="Where you keep and move money" action={add("accounts", "Add financial account")}/>
         {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
           detail={kindLabels[account.kind] + " · " + accountCurrency(account) + (account.archived ? " · Archived" : " · Tracked since " + dayLabel(account.opening_date))}
           glyph={<span className="glyph" data-tone={accountTones[account.kind]} aria-hidden="true"><Icon size={18}/></span>}
           onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a bank account, wallet or cash balance to start recording transactions.</p>}
+      </section>
+      <section className="panel settings-panel settings-categories">
+        <SectionHeading title="Categories" subtitle="Income and spending categories" action={add("categories", "Add category")}/>
+        {workspace.categories.length ? workspace.categories.map(category => <SettingRow key={category.id} label={category.name}
+          detail={(category.applicable_kind === "expense" ? "Expense" : "Income") + (category.archived ? " · Archived" : "")}
+          glyph={<span className={"category-dot " + category.color}/>}
+          onEdit={() => onManage({ collection: "categories", row: category })}/>) : <p className="setting-empty">Add categories to organize your entries.</p>}
       </section>
       <section className="panel settings-panel">
         <SectionHeading title="Custom fields" subtitle="Fields shared by form and spreadsheet entry" action={add("field_definitions", "Add field")}/>
@@ -176,22 +209,13 @@ export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport
           {!field.archived && <><button className="icon-button" aria-label={"Move " + field.label + " up"} disabled={index === 0} onClick={() => onMove(field, -1)}><ArrowUp size={16}/></button><button className="icon-button" aria-label={"Move " + field.label + " down"} disabled={index === ordered.length - 1} onClick={() => onMove(field, 1)}><ArrowDown size={16}/></button></>}
         </SettingRow>) : <p className="setting-empty">Add a field for references, tags or any details you track.</p>}
       </section>
-    </div>
-    <div className="settings-column">
-      <section className="panel settings-panel">
-        <SectionHeading title="Categories" subtitle="Income and spending categories" action={add("categories", "Add category")}/>
-        {workspace.categories.length ? workspace.categories.map(category => <SettingRow key={category.id} label={category.name}
-          detail={(category.applicable_kind === "expense" ? "Expense" : "Income") + (category.archived ? " · Archived" : "")}
-          glyph={<span className={"category-dot " + category.color}/>}
-          onEdit={() => onManage({ collection: "categories", row: category })}/>) : <p className="setting-empty">Add categories to organize your entries.</p>}
-      </section>
-      <section className="panel settings-panel">
-        <SectionHeading title={cloud ? "Sign-in" : "Demo data"}/>
-        <div className="button-line">{cloud ? <button className="button secondary" onClick={onSignOut}>Sign out</button> : <>
+      <section className="panel settings-panel settings-help">
+        <SectionHeading title="How to use Finance Studio" subtitle="Step-by-step help for sheets, entries, and reports"/>
+        <div className="button-line"><button className="button secondary" onClick={onGuide}><BookOpen size={16}/> Open guide</button><a className="button quiet" href="mailto:whiteeorangee@gmail.com">Contact support</a></div>
+        {!cloud && <div className="button-line settings-demo-actions">
           <button className="button secondary" onClick={onExport}><Download size={16}/> Export demo data</button>
           <button className="button quiet danger" onClick={onReset}><RotateCcw size={16}/> Reset demo</button>
-        </>}</div>
+        </div>}
       </section>
-    </div>
   </div>;
 }
