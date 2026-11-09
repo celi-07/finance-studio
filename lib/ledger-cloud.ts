@@ -11,8 +11,11 @@ export function getSupabase({ url, key }: CloudConfig) {
   connection = { url, key, client };
   return client;
 }
-function issue(error: { message: string }) {
-  return Error(error.message);
+function writeIssue(error: { code: string; message: string }, fallback: string) {
+  if (error.code === "P0001") return Error(error.message);
+  if (error.code === "23505") return Error("An entry with these details already exists. Refresh and try again.");
+  if (error.code === "23503") return Error("This change conflicts with a linked record.");
+  return Error(fallback);
 }
 
 export async function loadCloud(supabase: SupabaseClient, userId: string): Promise<Workspace> {
@@ -23,7 +26,7 @@ export async function loadCloud(supabase: SupabaseClient, userId: string): Promi
     for (let offset = 0; ; offset += size) {
       const { data, error } = await supabase.from(collection).select("*").eq("user_id", userId)
         .order("id").range(offset, offset + size - 1);
-      if (error) throw issue(error);
+      if (error) throw Error("Couldn’t load your records. Try again in a moment.");
       rows.push(...data);
       if (data.length < size) break;
     }
@@ -37,10 +40,10 @@ export async function upsertCloud<K extends Collection>(supabase: SupabaseClient
     onConflict: "id",
     ignoreDuplicates: collection === "reimbursement_receipts",
   });
-  if (error) throw issue(error);
+  if (error) throw writeIssue(error, "Couldn’t save this change. Try again in a moment.");
 }
 
 export async function deleteCloud(supabase: SupabaseClient, userId: string, collection: Collection, id: string) {
   const { error } = await supabase.from(collection).delete().eq("user_id", userId).eq("id", id);
-  if (error) throw issue(error);
+  if (error) throw writeIssue(error, "Couldn’t delete this entry. Try again in a moment.");
 }

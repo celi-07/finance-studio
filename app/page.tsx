@@ -10,7 +10,7 @@ export default async function Home() {
     return <LedgerApp cloud={configuredCloud(env)}/>;
   } catch {
     return <main className="auth-screen"><section className="panel auth-panel"><Brand/>
-      <Empty title="Ledger can’t connect" description="Check the Supabase project URL and publishable key in Ledger’s settings."/>
+      <Empty title="Ledger can’t connect" description="The workspace is temporarily unavailable. Try again in a moment."/>
     </section></main>;
   }
 }

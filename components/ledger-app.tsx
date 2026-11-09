@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { isAuthError } from "@supabase/supabase-js";
 import { ChartNoAxesCombined, CircleAlert, Download, HandCoins, PanelsTopLeft, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
 import { accountName, activeFields, dayLabel, emptyWorkspace, money, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
@@ -25,8 +26,22 @@ type Panel =
   | { type: "entry"; original?: Entry; kind?: Kind; preset?: string; bulk?: boolean }
   | { type: "receive"; id: string } | { type: "value"; id: string } | { type: "manage"; edit: Management }
   | { type: "delete"; entry: Entry } | { type: "receipt"; row: Activity } | { type: "reset" };
-type Identity = { id: string; email?: string };
 type AuthMode = "sign-in" | "sign-up" | "reset" | "recover";
+
+function authMessage(error: unknown, mode: AuthMode) {
+  const code = isAuthError(error) ? error.code : undefined;
+  if (code === "invalid_credentials") return "Check your email and password and try again.";
+  if (code === "email_not_confirmed") return "Open the confirmation link in your email before signing in.";
+  if (code === "weak_password") return "Choose a stronger password and try again.";
+  if (code === "same_password") return "Choose a password you haven’t used for this account.";
+  if (code?.endsWith("rate_limit")) return "Too many attempts. Wait a moment and try again.";
+  return {
+    "sign-in": "Couldn’t sign in. Try again in a moment.",
+    "sign-up": "Couldn’t create your account. Try again in a moment.",
+    reset: "Couldn’t send the reset link. Try again in a moment.",
+    recover: "Couldn’t update your password. Try requesting a new reset link.",
+  }[mode];
+}
 
 function AuthScreen({ cloud, recovery, onRecovered }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => void }) {
   const [mode, setMode] = useState<AuthMode>("sign-in");
@@ -62,7 +77,7 @@ function AuthScreen({ cloud, recovery, onRecovered }: { cloud: CloudConfig; reco
         const { error: issue } = await auth.signInWithPassword({ email, password });
         if (issue) throw issue;
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Sign-in could not be completed."); }
+    } catch (reason) { setError(authMessage(reason, current)); }
     finally { setWorking(false); }
   }
   function switchTo(next: AuthMode) { setMode(next); setMessage(""); setError(""); }
@@ -86,7 +101,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const [data, setData] = useState<Workspace>(emptyWorkspace);
   const dataRef = useRef(data);
   const [loading, setLoading] = useState(true);
-  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const owner = useRef<string | null>(null);
   const initialized = useRef(false);
   const saving = useRef(false);
@@ -125,7 +140,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         if (initialized.current && nextOwner === owner.current) return;
         initialized.current = true;
         owner.current = nextOwner;
-        setIdentity(user ? { id: user.id, email: user.email } : null);
+        setSignedIn(Boolean(nextOwner));
         update(emptyWorkspace);
         setPanel(null); setProblem(""); setNotice("");
         if (!nextOwner) { setRecovery(false); setLoading(false); return; }
@@ -133,12 +148,12 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         setTimeout(() => {
           loadCloud(supabase, nextOwner).then(workspace => {
             if (mounted && owner.current === nextOwner) update(workspace);
-          }).catch(error => { if (mounted && owner.current === nextOwner) setProblem(errorText(error)); })
+          }).catch(() => { if (mounted && owner.current === nextOwner) setProblem("Couldn’t load your records. Try again in a moment."); })
             .finally(() => { if (mounted && owner.current === nextOwner) setLoading(false); });
         }, 0);
       });
       return () => { mounted = false; initialized.current = false; subscription.unsubscribe(); };
-    } catch (error) { setProblem(errorText(error)); setLoading(false); }
+    } catch { setProblem("Couldn’t connect to your workspace. Try again in a moment."); setLoading(false); }
   }, [cloud]);
   useEffect(() => {
     if (!notice) return;
@@ -153,7 +168,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   function openEntry(kind?: Kind, investment?: string, bulk?: boolean) {
     if (!data.accounts.some(account => !account.archived && account.kind !== "investment")) {
       navigate("settings");
-      setNotice("Add a bank, wallet or cash account before recording an entry.");
+      setNotice("Add a bank account, wallet or cash balance to record your first entry.");
       setPanel({ type: "manage", edit: { collection: "accounts" } });
       return;
     }
@@ -209,11 +224,11 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   async function signOut() {
     if (!cloud) return;
     try { const { error } = await getSupabase(cloud).auth.signOut(); if (error) throw error; }
-    catch (error) { setProblem(errorText(error)); }
+    catch { setProblem("Couldn’t sign out. Try again in a moment."); }
   }
 
-  if (cloud && (recovery || (!loading && !identity && !problem))) return <AuthScreen cloud={cloud} recovery={recovery} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
-  if (configured && (loading || !identity || problem && data === emptyWorkspace)) return <main className="auth-screen"><section className="panel auth-panel"><Brand/>{problem ? <Empty title="Couldn’t open your workspace" description={problem} action={<div className="button-line"><button className="button secondary" onClick={() => window.location.reload()}>Try again</button>{identity && <button className="button quiet" onClick={signOut}>Sign out</button>}</div>}/> : <p role="status">Opening your workspace…</p>}</section></main>;
+  if (cloud && (recovery || (!loading && !signedIn && !problem))) return <AuthScreen cloud={cloud} recovery={recovery} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
+  if (configured && (loading || !signedIn || problem && data === emptyWorkspace)) return <main className="auth-screen"><section className="panel auth-panel"><Brand/>{problem ? <Empty title="Couldn’t open your workspace" description={problem} action={<div className="button-line"><button className="button secondary" onClick={() => window.location.reload()}>Try again</button>{signedIn && <button className="button quiet" onClick={signOut}>Sign out</button>}</div>}/> : <p role="status">Opening your workspace…</p>}</section></main>;
 
   const page = routes[route];
   const close = () => setPanel(null);
@@ -229,7 +244,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
           <span className="nav-short">{key === "transactions" ? "Activity" : key === "reimbursements" ? "Claims" : key === "investments" ? "Invest" : label}</span>
         </a>)}
       </nav>
-      <div className="sidebar-bottom"><span className="glyph" data-tone={configured ? "mint" : "blue"} aria-hidden="true"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Connected to Supabase" : "Saved in this browser"}</small></div></div>
+      <div className="sidebar-bottom"><span className="glyph" data-tone={configured ? "mint" : "blue"} aria-hidden="true"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Signed in" : "Saved in this browser"}</small></div></div>
     </aside>
     <main className="main-content" id="main-content">
       <div className="page">
@@ -251,7 +266,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
           {!loading && route === "reimbursements" && <Reimbursements workspace={data} month={month} onReceive={id => setPanel({ type: "receive", id })}
             onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
           {!loading && route === "investments" && <Investments workspace={data} month={month} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
-          {!loading && route === "settings" && <Settings workspace={data} cloud={configured} email={identity?.email} onManage={edit => setPanel({ type: "manage", edit })}
+          {!loading && route === "settings" && <Settings workspace={data} cloud={configured} onManage={edit => setPanel({ type: "manage", edit })}
             onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onSignOut={signOut}/>}
         </div>
         <footer className="footer"><span>Ledger · Personal finance</span><span>IDR · Asia/Jakarta</span></footer>

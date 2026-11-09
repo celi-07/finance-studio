@@ -114,13 +114,13 @@ export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
         : <Empty title="No activity this month" description="Add an entry to start building this month’s record." action={<button type="button" className="button secondary" onClick={onAdd}><Plus size={16}/> Add entry</button>}/>}
     </section>
     <section className="panel account-section">
-      <SectionHeading title="Accounts" subtitle="Month-end balances" />
+      <SectionHeading title="Financial accounts" subtitle="Month-end balances" />
       {report.accounts.length ? <div className="account-grid">{report.accounts.filter(row => !row.account.archived || row.value !== 0).map(row => {
         const Icon = accountIcons[row.account.kind];
         return <article className="account-card" key={row.account.id}>
           <span className="glyph" data-tone={accountTones[row.account.kind]} aria-hidden="true"><Icon size={19}/></span><div><h3>{row.account.name}</h3><p>{row.account.archived ? "Archived" : row.account.kind}</p></div><strong>{money(row.value)}</strong>
         </article>;
-      })}</div> : <div className="panel"><Empty title="No accounts yet" description="Create an account in Settings to start recording entries." icon={Landmark}/></div>}
+      })}</div> : <div className="panel"><Empty title="No financial accounts yet" description="Add a bank account, wallet or cash balance in Settings to start recording entries." icon={Landmark}/></div>}
     </section>
     </div>
   </>;

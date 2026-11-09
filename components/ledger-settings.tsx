@@ -12,7 +12,7 @@ import { SectionHeading } from "./ledger-views";
 
 type Save = <K extends Collection>(collection: K, rows: Workspace[K]) => Promise<void>;
 export type Management = { collection: "accounts"; row?: Account } | { collection: "categories"; row?: Category } | { collection: "field_definitions"; row?: Definition };
-const kindLabels = { bank: "Bank", wallet: "Wallet", cash: "Cash", investment: "Investment" };
+const kindLabels = { bank: "Bank account", wallet: "E-wallet", cash: "Cash on hand", investment: "Investment account" };
 const typeLabels: Record<FieldType, string> = { text: "Text", number: "Number", date: "Date", select: "Select", checkbox: "Checkbox" };
 
 export function TaskForm({ title, subtitle, close, submit, label, children }: {
@@ -117,13 +117,15 @@ export function ManagementDialog({ edit, workspace, close, save }: { edit: Manag
       await save("field_definitions", [{ id: edit.row?.id ?? id, label: name, field_type: fieldType, options, required: data.has("required"), position, archived }]);
     }
   }
-  return <TaskForm title={(edit.row ? "Edit " : "Add ") + singular} close={close} submit={submit} label={edit.row ? "Save changes" : "Add " + singular}>
+  const title = (edit.row ? "Edit " : "Add ") + (isAccount ? "financial account" : singular);
+  const subtitle = isAccount && !edit.row ? "Track a bank account, e-wallet, cash balance or investment. Entries you record update its balance." : undefined;
+  return <TaskForm title={title} subtitle={subtitle} close={close} submit={submit} label={edit.row ? "Save changes" : title}>
     <Field label={isAccount || isCategory ? "Name" : "Field label"} full><input name="name" defaultValue={isAccount || isCategory ? edit.row?.name : edit.row?.label} maxLength={70} required/></Field>
     {isAccount && <>
       <Field label="Account type" full><Picker label="Account type" name="kind" defaultValue={edit.row?.kind ?? "bank"} disabled={!!edit.row}
         options={Object.entries(kindLabels).map(([value, label]) => ({ value, label }))}/></Field>
-      <Field label="Opening balance (Rp)"><input name="opening" inputMode="decimal" defaultValue={edit.row ? amountText(edit.row.opening_minor) : ""} placeholder="0"/></Field>
-      <Field label="Opening date"><input name="date" type="date" defaultValue={edit.row?.opening_date ?? today()} required/></Field>
+      <Field label="Starting balance (Rp)" hint="Balance before the first entry you’ll record."><input name="opening" inputMode="decimal" defaultValue={edit.row ? amountText(edit.row.opening_minor) : ""} placeholder="0"/></Field>
+      <Field label="Start tracking from" hint="Use the date of your earliest entry or an earlier date."><input name="date" type="date" defaultValue={edit.row?.opening_date ?? today()} required/></Field>
     </>}
     {isCategory && <>
       <Field label="Applies to"><Picker label="Applies to" name="kind" defaultValue={edit.row?.applicable_kind ?? "expense"} disabled={!!edit.row}
@@ -144,8 +146,8 @@ export function ManagementDialog({ edit, workspace, close, save }: { edit: Manag
 function SettingRow({ label, detail, glyph, onEdit, children }: { label: string; detail: string; glyph?: ReactNode; onEdit: () => void; children?: ReactNode }) {
   return <div className="setting-row">{glyph}<div><strong>{label}</strong><small>{detail}</small></div>{children}<button className="icon-button" aria-label={"Edit " + label} onClick={onEdit}><Pencil size={17}/></button></div>;
 }
-export function Settings({ workspace, cloud, email, onManage, onMove, onReset, onExport, onSignOut }: {
-  workspace: Workspace; cloud: boolean; email?: string; onManage: (edit: Management) => void; onMove: (field: Definition, direction: number) => void;
+export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport, onSignOut }: {
+  workspace: Workspace; cloud: boolean; onManage: (edit: Management) => void; onMove: (field: Definition, direction: number) => void;
   onReset: () => void; onExport: () => void; onSignOut: () => void;
 }) {
   const ordered = activeFields(workspace);
@@ -154,11 +156,11 @@ export function Settings({ workspace, cloud, email, onManage, onMove, onReset, o
   return <div className="settings-grid">
     <div className="settings-column">
       <section className="panel settings-panel">
-        <SectionHeading title="Accounts" subtitle="Bank, wallet, cash and investment accounts" action={add("accounts", "Add account")}/>
+        <SectionHeading title="Financial accounts" subtitle="Where you keep and move money" action={add("accounts", "Add financial account")}/>
         {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
-          detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Opened " + dayLabel(account.opening_date))}
+          detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Tracked since " + dayLabel(account.opening_date))}
           glyph={<span className="glyph" data-tone={accountTones[account.kind]} aria-hidden="true"><Icon size={18}/></span>}
-          onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a cash account to start entering transactions.</p>}
+          onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a bank account, wallet or cash balance to start recording transactions.</p>}
       </section>
       <section className="panel settings-panel">
         <SectionHeading title="Custom fields" subtitle="Fields shared by form and spreadsheet entry" action={add("field_definitions", "Add field")}/>
@@ -178,9 +180,8 @@ export function Settings({ workspace, cloud, email, onManage, onMove, onReset, o
       </section>
       <section className="panel settings-panel">
         <SectionHeading title="Workspace" subtitle="Indonesian rupiah (IDR) · Asia/Jakarta reporting dates"/>
-        <div className="storage-card"><span className="glyph"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Supabase workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? email : "The demo starts with fictional records. Connect Supabase to keep a separate signed-in workspace."}</p></div></div>
+        <div className="storage-card"><span className="glyph" data-tone={cloud ? "mint" : "blue"} aria-hidden="true"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Private workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? "Your records are available when you sign in to Ledger." : "The demo starts with fictional records. Changes stay in this browser."}</p></div></div>
         <div className="button-line">{cloud ? <button className="button secondary" onClick={onSignOut}>Sign out</button> : <>
-          <a className="button secondary" href="https://supabase.com/docs/guides/getting-started" target="_blank" rel="noreferrer">Supabase documentation</a>
           <button className="button secondary" onClick={onExport}><Download size={16}/> Export demo data</button>
           <button className="button quiet danger" onClick={onReset}><RotateCcw size={16}/> Reset demo</button>
         </>}</div>
