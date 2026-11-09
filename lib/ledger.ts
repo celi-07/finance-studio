@@ -7,10 +7,25 @@ export const kinds = {
 } as const;
 
 export type Kind = keyof typeof kinds;
+export const currencies = {
+  IDR: "Indonesian rupiah", USD: "US dollar", SGD: "Singapore dollar", EUR: "Euro", GBP: "British pound",
+  AUD: "Australian dollar", CAD: "Canadian dollar", CNY: "Chinese yuan", HKD: "Hong Kong dollar",
+  INR: "Indian rupee", JPY: "Japanese yen", KRW: "South Korean won", MYR: "Malaysian ringgit",
+  NZD: "New Zealand dollar", PHP: "Philippine peso", THB: "Thai baht", VND: "Vietnamese dong",
+  AED: "UAE dirham", CHF: "Swiss franc", KWD: "Kuwaiti dinar",
+} as const;
+export type Currency = keyof typeof currencies;
+export const defaultCurrency: Currency = "IDR";
+export const isCurrency = (value: string): value is Currency => Object.hasOwn(currencies, value);
+const minorDigits = (currency: Currency) => currency === "KWD" ? 3 : ["JPY", "KRW", "VND"].includes(currency) ? 0 : 2;
+export const currencyLabel = (currency: Currency) => currency === "IDR" ? "Rp" : currency;
+export const amountExample = (currency: Currency) => currency === "IDR" ? "125.000,50" : minorDigits(currency) === 0 ? "125,000" : "125.50";
+export const majorAmount = (amount: number, currency: Currency) => amount / 10 ** minorDigits(currency);
 export type AccountKind = "bank" | "wallet" | "cash" | "investment";
 export type FieldType = "text" | "number" | "date" | "select" | "checkbox";
 export type FieldValue = string | number | boolean;
-export type Account = { id: string; name: string; kind: AccountKind; opening_minor: number; opening_date: string; archived: boolean };
+// Saved demo accounts from before currency support use IDR.
+export type Account = { id: string; name: string; kind: AccountKind; currency?: Currency; opening_minor: number; opening_date: string; archived: boolean };
 export type Category = { id: string; name: string; applicable_kind: "income" | "expense"; color: string; archived: boolean };
 export type Field = { id: string; label: string; field_type: FieldType; options: string[]; required: boolean; position: number; archived: boolean };
 export type Entry = {
@@ -35,16 +50,21 @@ export const emptyWorkspace: Workspace = {
 };
 const jakarta = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" });
 const rupiah = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
+const otherCurrency = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 export const today = () => jakarta.format(new Date());
-function formattedAmount(amount: number) {
+function formattedAmount(amount: number, currency: Currency) {
+  const decimals = minorDigits(currency);
+  const factor = 10 ** decimals;
   const absolute = Math.abs(amount);
-  const fraction = absolute % 100;
-  return rupiah.format((absolute - fraction) / 100) + (fraction ? "," + String(fraction).padStart(2, "0").replace(/0$/, "") : "");
+  const fraction = absolute % factor;
+  const whole = (currency === "IDR" ? rupiah : otherCurrency).format((absolute - fraction) / factor);
+  if (currency === "IDR") return whole + (fraction ? "," + String(fraction).padStart(2, "0").replace(/0$/, "") : "");
+  return whole + (decimals ? "." + String(fraction).padStart(decimals, "0") : "");
 }
-export const money = (amount: number) => (amount < 0 ? "−" : "") + "Rp\u00a0" + formattedAmount(amount);
-export const amountText = (amount: number) => amount ? (amount < 0 ? "-" : "") + formattedAmount(amount) : "";
-export function signed(amount: number) {
-  return (amount < 0 ? "−" : amount > 0 ? "+" : "") + money(Math.abs(amount));
+export const money = (amount: number, currency: Currency = defaultCurrency) => (amount < 0 ? "−" : "") + currencyLabel(currency) + "\u00a0" + formattedAmount(amount, currency);
+export const amountText = (amount: number, currency: Currency = defaultCurrency) => amount ? (amount < 0 ? "-" : "") + formattedAmount(amount, currency) : "";
+export function signed(amount: number, currency: Currency = defaultCurrency) {
+  return (amount < 0 ? "−" : amount > 0 ? "+" : "") + money(Math.abs(amount), currency);
 }
 const monthFormat = new Intl.DateTimeFormat("en", { month: "long", year: "numeric", timeZone: "UTC" });
 const dayFormat = new Intl.DateTimeFormat("en", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
@@ -62,18 +82,34 @@ export function parseDate(input: string): string | null {
   const value = new Date(date + "T00:00:00Z");
   return !Number.isNaN(+value) && value.toISOString().slice(0, 10) === date ? date : null;
 }
-export function parseMoney(input: string): number | null {
-  let clean = input.trim().replace(/^Rp\s*/i, "");
-  if (/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(clean)) clean = clean.replace(/\./g, "");
-  if (!/^\d+(?:[,.]\d{1,2})?$/.test(clean)) return null;
-  const [whole, fraction = ""] = clean.split(/[,.]/);
-  const digits = (whole + fraction.padEnd(2, "0")).replace(/^0+(?=\d)/, "");
+export function parseMoney(input: string, currency: Currency = defaultCurrency): number | null {
+  let clean = input.trim().replace(new RegExp("^" + (currency === "IDR" ? "(?:Rp|IDR)" : currency) + "\\s*", "i"), "");
+  const decimals = minorDigits(currency);
+  if (currency === "IDR") {
+    if (/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(clean)) clean = clean.replace(/\./g, "");
+    clean = clean.replace(",", ".");
+  } else if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(clean)) clean = clean.replace(/,/g, "");
+  if (!(decimals ? new RegExp("^\\d+(?:\\.\\d{1," + decimals + "})?$") : /^\d+$/).test(clean)) return null;
+  const [whole, fraction = ""] = clean.split(".");
+  const digits = (whole + fraction.padEnd(decimals, "0")).replace(/^0+(?=\d)/, "");
   if (digits.length > 16) return null;
   const value = BigInt(digits);
   return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
 }
 export const newId = () => crypto.randomUUID();
 export const accountName = (workspace: Workspace, id: string) => workspace.accounts.find(account => account.id === id)?.name ?? "Unknown account";
+export const accountCurrency = (account?: Account): Currency => account?.currency ?? defaultCurrency;
+export const currencyForAccount = (workspace: Workspace, id: string) => accountCurrency(workspace.accounts.find(account => account.id === id));
+export function workspaceForCurrency(workspace: Workspace, currency: Currency): Workspace {
+  const accounts = workspace.accounts.filter(account => accountCurrency(account) === currency);
+  const accountIds = new Set(accounts.map(account => account.id));
+  const transactions = workspace.transactions.filter(entry => accountIds.has(entry.account_id));
+  const entryIds = new Set(transactions.map(entry => entry.id));
+  return { ...workspace, accounts, transactions,
+    reimbursement_receipts: workspace.reimbursement_receipts.filter(receipt => accountIds.has(receipt.account_id) && entryIds.has(receipt.expense_id)),
+    investment_valuations: workspace.investment_valuations.filter(row => accountIds.has(row.investment_account_id)),
+  };
+}
 export const categoryName = (workspace: Workspace, id: string | null) => workspace.categories.find(category => category.id === id)?.name ?? "Uncategorized";
 export const needsDestination = (kind: string) => kind === "transfer" || kind.startsWith("investment_");
 export const editableAccounts = (workspace: Workspace, kind: string, destination = false, currentId?: string | null) => workspace.accounts.filter(account => {
@@ -92,10 +128,10 @@ export function blankDraft(workspace: Workspace, month: string, kind: Kind = "ex
     destination_account_id: destination, category_id: null, notes: "", custom: {}, reimbursable: "", counterparty: "", due_on: null,
   };
 }
-export function draftFrom(entry: Entry): EntryDraft {
+export function draftFrom(entry: Entry, currency: Currency = defaultCurrency): EntryDraft {
   const { amount_minor, reimbursable_minor, custom_values, ...rest } = entry;
   return {
-    ...rest, amount: amountText(amount_minor), reimbursable: amountText(reimbursable_minor),
+    ...rest, amount: amountText(amount_minor, currency), reimbursable: amountText(reimbursable_minor, currency),
     custom: Object.fromEntries(Object.entries(custom_values).map(([key, value]) => [key, typeof value === "number" ? String(value) : value])),
   };
 }
@@ -105,9 +141,11 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft): Validati
   const existing = workspace.transactions.find(entry => entry.id === draft.id);
   const kind = Object.hasOwn(kinds, draft.kind) ? draft.kind as Kind : null;
   const date = parseDate(draft.occurred_on);
-  const amount = parseMoney(draft.amount);
+  const sourceAccount = editableAccounts(workspace, draft.kind, false, existing?.account_id).find(item => item.id === draft.account_id);
+  const currency = accountCurrency(sourceAccount);
+  const amount = parseMoney(draft.amount, currency);
   const description = draft.description.trim();
-  const reimbursable = kind === "expense" && draft.reimbursable.trim() ? parseMoney(draft.reimbursable) : 0;
+  const reimbursable = kind === "expense" && draft.reimbursable.trim() ? parseMoney(draft.reimbursable, currency) : 0;
   const destination = needsDestination(draft.kind) ? draft.destination_account_id : null;
   const due = reimbursable && draft.due_on ? parseDate(draft.due_on) : null;
   const counterparty = reimbursable ? draft.counterparty.trim() : "";
@@ -115,13 +153,14 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft): Validati
   if (!kind) errors.kind = "Choose a valid type.";
   if (!date) errors.occurred_on = "Enter a valid date (YYYY-MM-DD or DD/MM/YYYY).";
   if (!description || description.length > 160) errors.description = "Enter a description up to 160 characters.";
-  if (!amount) errors.amount = "Enter a positive amount, such as 125.000 or 125.000,50.";
-  const sourceAccount = editableAccounts(workspace, draft.kind, false, existing?.account_id).find(item => item.id === draft.account_id);
+  if (!amount) errors.amount = "Enter a positive amount, such as " + amountExample(currency) + ".";
   const targetAccount = editableAccounts(workspace, draft.kind, true, existing?.destination_account_id).find(item => item.id === destination);
   if (!sourceAccount) errors.account_id = "Choose a valid account.";
   else if (date && date < sourceAccount.opening_date) errors.account_id = "Choose an account open on the entry date.";
+  else if (existing && currencyForAccount(workspace, existing.account_id) !== currency) errors.account_id = "Keep the entry in its original currency.";
   if (needsDestination(draft.kind)) {
     if (!targetAccount || destination === draft.account_id) errors.destination_account_id = "Choose a different destination account.";
+    else if (accountCurrency(targetAccount) !== currency) errors.destination_account_id = "Choose a destination in the same currency.";
     else if (date && date < targetAccount.opening_date) errors.destination_account_id = "Choose an account open on the entry date.";
   }
   if (category && !workspace.categories.some(item => item.id === category && item.applicable_kind === kind && (!item.archived || existing?.category_id === item.id))) errors.category_id = "Choose a category that matches this type.";
@@ -210,7 +249,8 @@ export function balances(workspace: Workspace, before: string) {
     return { account, basis, valuation, value: valuation ? valuation.value_minor + (sinceValuation.get(account.id) ?? 0) : basis };
   });
 }
-export function monthly(workspace: Workspace, month: string) {
+export function monthly(data: Workspace, month: string, currency: Currency = defaultCurrency) {
+  const workspace = workspaceForCurrency(data, currency);
   const before = shiftMonth(month, 1) + "-01";
   const accounts = balances(workspace, before);
   const entries = workspace.transactions.filter(entry => entry.occurred_on.startsWith(month)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));
@@ -237,8 +277,8 @@ export function monthly(workspace: Workspace, month: string) {
 }
 
 export type Activity = { id: string; date: string; title: string; kind: Kind | "reimbursement_receipt"; amount: number; accountId: string; category: string; entry?: Entry; receipt?: Receipt };
-export function activity(workspace: Workspace, month: string): Activity[] {
-  const report = monthly(workspace, month);
+export function activity(workspace: Workspace, month: string, currency: Currency = defaultCurrency): Activity[] {
+  const report = monthly(workspace, month, currency);
   return [
     ...report.entries.map(entry => ({
       id: entry.id, date: entry.occurred_on, title: entry.description, kind: entry.kind,
@@ -252,4 +292,4 @@ export function activity(workspace: Workspace, month: string): Activity[] {
   ].sort((a, b) => b.date.localeCompare(a.date));
 }
 export const activityLabel = (row: Activity) => row.kind === "reimbursement_receipt" ? "Reimbursement received" : kinds[row.kind];
-export const activityMoney = (row: Activity) => row.kind === "transfer" ? money(row.amount) : signed(row.amount);
+export const activityMoney = (row: Activity, currency: Currency = defaultCurrency) => row.kind === "transfer" ? money(row.amount, currency) : signed(row.amount, currency);

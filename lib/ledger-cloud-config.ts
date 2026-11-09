@@ -20,7 +20,7 @@ export function readCloudConfig(rawUrl?: string, rawKey?: string): CloudConfig |
   const local = project && ["localhost", "127.0.0.1", "[::1]"].includes(project.hostname);
   if (!project || (project.protocol !== "https:" && !(local && project.protocol === "http:")) ||
     project.username || project.password || project.search || project.hash || !isPublicKey(key)) {
-    throw Error("Check the Supabase project URL and publishable key in Ledger’s hosting settings.");
+    throw Error("Check the Supabase project URL and publishable key in Finance Studio’s hosting settings.");
   }
   return { url, key };
 }

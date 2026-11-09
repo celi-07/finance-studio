@@ -3,14 +3,14 @@
 import { useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import {
-  activeFields, blankDraft, draftFrom, editableAccounts, kinds, needsDestination, validateEntry,
-  type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
+  activeFields, amountExample, blankDraft, currencyLabel, draftFrom, editableAccounts, kinds, needsDestination, validateEntry,
+  type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
 import { Picker } from "./ledger-picker";
 
 type Props = {
-  workspace: Workspace; month: string; original?: Entry; kind?: Kind; preset?: string; initialBulk?: boolean;
+  workspace: Workspace; month: string; currency: Currency; original?: Entry; kind?: Kind; preset?: string; initialBulk?: boolean;
   onSave: (entries: Entry[]) => Promise<void>; onDelete?: (entry: Entry) => void; onClose: () => void;
 };
 function kindMatch(value: string) {
@@ -37,9 +37,10 @@ function CustomInput({ definition, value, set, invalid, prior }: {
     inputMode={definition.field_type === "number" ? "decimal" : undefined} onChange={event => set(event.target.value)} />;
 }
 
-export function EntryDialog({ workspace, month, original, kind, preset, initialBulk, onSave, onDelete, onClose }: Props) {
+export function EntryDialog({ workspace, month, currency, original, kind, preset, initialBulk, onSave, onDelete, onClose }: Props) {
+  const unit = currencyLabel(currency);
   const make = () => blankDraft(workspace, month, kind, preset);
-  const [draft, setDraft] = useState(() => original ? draftFrom(original) : make());
+  const [draft, setDraft] = useState(() => original ? draftFrom(original, currency) : make());
   const [bulk, setBulk] = useState(!!initialBulk);
   const [rows, setRows] = useState<EntryDraft[]>(() => Array.from({ length: 3 }, make));
   const [rowErrors, setRowErrors] = useState<Record<string, Record<string, string>>>({});
@@ -52,8 +53,8 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
   const set = <K extends keyof EntryDraft,>(key: K, value: EntryDraft[K]) => setDraft(current => ({ ...current, [key]: value }));
   const availableAccounts = (destination: boolean) => editableAccounts(workspace, draft.kind, destination, destination ? original?.destination_account_id : original?.account_id);
   const fixedColumns = [
-    ["occurred_on", "Date"], ["kind", "Type"], ["description", "Description"], ["amount", "Amount (Rp)"], ["account_id", "Account"],
-    ["category_id", "Category"], ["destination_account_id", "Destination"], ["reimbursable", "Claim (Rp)"],
+    ["occurred_on", "Date"], ["kind", "Type"], ["description", "Description"], ["amount", `Amount (${unit})`], ["account_id", "Account"],
+    ["category_id", "Category"], ["destination_account_id", "Destination"], ["reimbursable", `Claim (${unit})`],
     ["counterparty", "Owed by"], ["due_on", "Due date"], ["notes", "Notes"],
   ] as const;
   const columns = [...fixedColumns, ...fields.map(field => [field.id, field.label] as const)];
@@ -154,7 +155,7 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
-      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Start in a cell and paste tab-separated rows. Use account and category names, and dates like 2026-11-07 or 07/11/2026. Scroll the grid for optional fields.</p></div>
+      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names, dates like 2026-11-07 or 07/11/2026, and {currency} amounts like {amountExample(currency)}. Scroll the grid for optional fields.</p></div>
       <div className="grid-scroll" tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label]) => <th key={key} scope="col" className={"col-" + key}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id}><th scope="row">{index + 1}</th>
@@ -179,7 +180,7 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
           onValueChange={kind => setDraft(changeKind(workspace, draft, kind))}
           options={Object.entries(kinds).map(([value, label]) => ({ value, label }))}/></Field>
         <Field label="Date" error={errors.occurred_on}><input type="date" value={draft.occurred_on} aria-invalid={!!errors.occurred_on} onChange={event => set("occurred_on", event.target.value)} /></Field>
-        <Field label="Amount (Rp)" error={errors.amount} full><input className="entry-amount" value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount} onChange={event => set("amount", event.target.value)} /></Field>
+        <Field label={`Amount (${unit})`} error={errors.amount} full><input className="entry-amount" value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount} onChange={event => set("amount", event.target.value)} /></Field>
         <Field label="Description" error={errors.description} full><input value={draft.description} placeholder="e.g. Grocery run" aria-invalid={!!errors.description} onChange={event => set("description", event.target.value)} /></Field>
         <Field label={needsDestination(draft.kind) ? "From account" : "Account"} error={errors.account_id}>
           <Picker label={needsDestination(draft.kind) ? "From account" : "Account"} value={draft.account_id} invalid={!!errors.account_id}
@@ -197,7 +198,7 @@ export function EntryDialog({ workspace, month, original, kind, preset, initialB
         </Field>}
         {draft.kind === "expense" && <label className="checkbox-field full"><input type="checkbox" checked={claim} onChange={event => setClaim(event.target.checked)} /> Part of this expense will be reimbursed</label>}
         {draft.kind === "expense" && claim && <>
-          <Field label="Reimbursable amount (Rp)" error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onChange={event => set("reimbursable", event.target.value)} /></Field>
+          <Field label={`Reimbursable amount (${unit})`} error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onChange={event => set("reimbursable", event.target.value)} /></Field>
           <Field label="Owed by" error={errors.counterparty}><input value={draft.counterparty} aria-invalid={!!errors.counterparty} onChange={event => set("counterparty", event.target.value)} /></Field>
           <Field label="Due date (optional)" error={errors.due_on}><input type="date" value={draft.due_on ?? ""} aria-invalid={!!errors.due_on} onChange={event => set("due_on", event.target.value || null)} /></Field>
         </>}

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ledger · Personal Finance",
-  description: "A personal finance workspace for spending, reimbursements and investments in Indonesian rupiah.",
+  title: "Finance Studio",
+  description: "Track spending, income, reimbursements and investments across currencies.",
   icons: { icon: "/favicon.svg" },
 };
 

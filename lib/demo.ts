@@ -78,7 +78,7 @@ export function exportDemo(workspace: Workspace) {
   const url = URL.createObjectURL(new Blob([JSON.stringify({ version: 1, data: workspace }, null, 2)], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = "ledger-demo-" + newId().slice(0, 8) + ".json";
+  link.download = "finance-studio-demo-" + newId().slice(0, 8) + ".json";
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

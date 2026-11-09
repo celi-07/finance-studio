@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Download, HandCoins, Pencil, Plus, RotateCcw, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
 import {
-  accountName, activeFields, amountText, claims, dayLabel, money, newId, parseDate, parseMoney, today,
-  type Account, type Category, type Collection, type Field as Definition, type FieldType, type Receipt, type Valuation, type Workspace,
+  accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, isCurrency, money, newId, parseDate, parseMoney, today,
+  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type Receipt, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, Field, Modal, palette } from "./ledger-ui";
 import { Picker } from "./ledger-picker";
@@ -13,6 +13,7 @@ import { SectionHeading } from "./ledger-views";
 type Save = <K extends Collection>(collection: K, rows: Workspace[K]) => Promise<void>;
 export type Management = { collection: "accounts"; row?: Account } | { collection: "categories"; row?: Category } | { collection: "field_definitions"; row?: Definition };
 const kindLabels = { bank: "Bank account", wallet: "E-wallet", cash: "Cash on hand", investment: "Investment account" };
+const currencyOptions = Object.entries(currencies).map(([value, label]) => ({ value, label: value + " · " + label }));
 const typeLabels: Record<FieldType, string> = { text: "Text", number: "Number", date: "Date", select: "Select", checkbox: "Checkbox" };
 
 export function TaskForm({ title, subtitle, close, submit, label, children }: {
@@ -42,21 +43,22 @@ export function ReceiptDialog({ workspace, expenseId, close, save }: { workspace
   const [id] = useState(newId);
   const claim = claims(workspace).find(item => item.entry.id === expenseId);
   if (!claim) return null;
-  const accounts = workspace.accounts.filter(account => account.kind !== "investment" && !account.archived);
+  const currency = currencyForAccount(workspace, claim.entry.account_id);
+  const accounts = workspace.accounts.filter(account => account.kind !== "investment" && !account.archived && accountCurrency(account) === currency);
   async function submit(data: FormData) {
     if (!claim) return;
-    const amount = parseMoney(value(data, "amount"));
+    const amount = parseMoney(value(data, "amount"), currency);
     const date = parseDate(value(data, "date"));
     const account = accounts.find(item => item.id === value(data, "account"));
-    if (!amount || amount > claim.remaining) throw Error("Enter a positive amount up to " + money(claim.remaining) + ".");
+    if (!amount || amount > claim.remaining) throw Error("Enter a positive amount up to " + money(claim.remaining, currency) + ".");
     if (!date || date < claim.entry.occurred_on || date > today()) throw Error("Choose a payment date from the expense date through today.");
     if (!account || date < account.opening_date) throw Error("Choose a cash account open on the payment date.");
     const receipt: Receipt = { id, expense_id: expenseId, account_id: account.id, received_on: date, amount_minor: amount, notes: value(data, "notes") };
     await save("reimbursement_receipts", [receipt]);
   }
   return <TaskForm title="Receive payment" subtitle={claim.entry.description + " · " + claim.entry.counterparty} close={close} submit={submit} label="Record payment">
-    <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining)}</strong></div></div>
-    <Field label="Amount received (Rp)"><input name="amount" inputMode="decimal" placeholder={amountText(claim.remaining)} required /></Field>
+    <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining, currency)}</strong></div></div>
+    <Field label={`Amount received (${currencyLabel(currency)})`}><input name="amount" inputMode="decimal" placeholder={amountText(claim.remaining, currency)} required /></Field>
     <Field label="Date received"><input name="date" type="date" defaultValue={today()} min={claim.entry.occurred_on} max={today()} required/></Field>
     <Field label="Deposit account" full><Picker label="Deposit account" name="account" defaultValue={accounts.some(account => account.id === claim.entry.account_id) ? claim.entry.account_id : ""}
       options={[{ value: "", label: "Choose account" }, ...accounts.map(account => ({ value: account.id, label: account.name }))]}/></Field>
@@ -67,9 +69,10 @@ export function ReceiptDialog({ workspace, expenseId, close, save }: { workspace
 export function ValueDialog({ workspace, accountId, close, save }: { workspace: Workspace; accountId: string; close: () => void; save: Save }) {
   const [id] = useState(newId);
   const account = workspace.accounts.find(item => item.id === accountId);
+  const currency = accountCurrency(account);
   const latest = workspace.investment_valuations.filter(item => item.investment_account_id === accountId).toSorted((a,b) => b.valued_on.localeCompare(a.valued_on))[0];
   async function submit(data: FormData) {
-    const amount = parseMoney(value(data, "value"));
+    const amount = parseMoney(value(data, "value"), currency);
     const date = parseDate(value(data, "date"));
     if (amount === null) throw Error("Enter a valid value of zero or more.");
     if (!date || !account || date < account.opening_date || date > today()) throw Error("Choose a date from the account opening through today.");
@@ -78,15 +81,16 @@ export function ValueDialog({ workspace, accountId, close, save }: { workspace: 
     await save("investment_valuations", [valuation]);
   }
   return <TaskForm title="Update valuation" subtitle={accountName(workspace, accountId) + " · Enter the total investment value on this date."} close={close} submit={submit} label="Save valuation">
-    <Field label="Value (Rp)"><input name="value" inputMode="decimal" placeholder={latest ? amountText(latest.value_minor) : "0"} required/></Field>
+    <Field label={`Value (${currencyLabel(currency)})`}><input name="value" inputMode="decimal" placeholder={latest ? amountText(latest.value_minor, currency) : "0"} required/></Field>
     <Field label="Valuation date"><input name="date" type="date" defaultValue={today()} min={account?.opening_date} max={today()} required/></Field>
   </TaskForm>;
 }
 
-export function ManagementDialog({ edit, workspace, close, save }: { edit: Management; workspace: Workspace; close: () => void; save: Save }) {
+export function ManagementDialog({ edit, workspace, initialCurrency, close, save }: { edit: Management; workspace: Workspace; initialCurrency: Currency; close: () => void; save: Save }) {
   const [id] = useState(newId);
   const [fieldType, setFieldType] = useState<FieldType>(edit.collection === "field_definitions" ? edit.row?.field_type ?? "text" : "text");
   const isAccount = edit.collection === "accounts";
+  const [currency, setCurrency] = useState(() => isAccount && edit.row ? accountCurrency(edit.row) : initialCurrency);
   const isCategory = edit.collection === "categories";
   const singular = isAccount ? "account" : isCategory ? "category" : "custom field";
   async function submit(data: FormData) {
@@ -96,15 +100,16 @@ export function ManagementDialog({ edit, workspace, close, save }: { edit: Manag
     if (edit.collection === "accounts") {
       const duplicate = workspace.accounts.some(row => row.id !== edit.row?.id && row.name.toLowerCase() === name.toLowerCase());
       if (duplicate) throw Error("An account with this name already exists.");
-      const opening = parseMoney(value(data, "opening") || "0");
+      const opening = parseMoney(value(data, "opening") || "0", currency);
       const date = parseDate(value(data, "date"));
       const kind = edit.row?.kind ?? value(data, "kind") as Account["kind"];
-      if (opening === null || !date || !Object.hasOwn(kindLabels, kind)) throw Error("Enter a valid starting balance, date and account type.");
+      if (opening === null) throw Error("Enter a starting balance like " + amountExample(currency) + ".");
+      if (!date || !Object.hasOwn(kindLabels, kind)) throw Error("Enter a valid date and account type.");
       const entryBeforeOpening = workspace.transactions.some(entry => (entry.account_id === edit.row?.id || entry.destination_account_id === edit.row?.id) && entry.occurred_on < date)
         || workspace.reimbursement_receipts.some(receipt => receipt.account_id === edit.row?.id && receipt.received_on < date)
         || workspace.investment_valuations.some(valuation => valuation.investment_account_id === edit.row?.id && valuation.valued_on < date);
       if (entryBeforeOpening) throw Error("Choose an opening date on or before the earliest linked entry.");
-      await save("accounts", [{ id: edit.row?.id ?? id, name, kind, opening_minor: opening, opening_date: date, archived }]);
+      await save("accounts", [{ id: edit.row?.id ?? id, name, kind, currency, opening_minor: opening, opening_date: date, archived }]);
     } else if (edit.collection === "categories") {
       const applicable = edit.row?.applicable_kind ?? value(data, "kind") as Category["applicable_kind"];
       if (workspace.categories.some(row => row.id !== edit.row?.id && row.applicable_kind === applicable && row.name.toLowerCase() === name.toLowerCase())) throw Error("A category with this name already exists for that type.");
@@ -124,7 +129,9 @@ export function ManagementDialog({ edit, workspace, close, save }: { edit: Manag
     {isAccount && <>
       <Field label="Account type" full><Picker label="Account type" name="kind" defaultValue={edit.row?.kind ?? "bank"} disabled={!!edit.row}
         options={Object.entries(kindLabels).map(([value, label]) => ({ value, label }))}/></Field>
-      <Field label="Starting balance (Rp)" hint="Balance before the first entry you’ll record."><input name="opening" inputMode="decimal" defaultValue={edit.row ? amountText(edit.row.opening_minor) : ""} placeholder="0"/></Field>
+      <Field label="Currency" full hint="Currency is set when you add the account."><Picker label="Account currency" value={currency} disabled={!!edit.row}
+        options={currencyOptions} onValueChange={code => { if (isCurrency(code)) setCurrency(code); }}/></Field>
+      <Field label={`Starting balance (${currencyLabel(currency)})`} hint="Balance before the first entry you’ll record."><input name="opening" inputMode="decimal" defaultValue={edit.row ? amountText(edit.row.opening_minor, currency) : ""} placeholder={amountExample(currency)}/></Field>
       <Field label="Start tracking from" hint="Use the date of your earliest entry or an earlier date."><input name="date" type="date" defaultValue={edit.row?.opening_date ?? today()} required/></Field>
     </>}
     {isCategory && <>
@@ -158,7 +165,7 @@ export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport
       <section className="panel settings-panel">
         <SectionHeading title="Financial accounts" subtitle="Where you keep and move money" action={add("accounts", "Add financial account")}/>
         {workspace.accounts.length ? workspace.accounts.map(account => { const Icon = accountIcons[account.kind]; return <SettingRow key={account.id} label={account.name}
-          detail={kindLabels[account.kind] + (account.archived ? " · Archived" : " · Tracked since " + dayLabel(account.opening_date))}
+          detail={kindLabels[account.kind] + " · " + accountCurrency(account) + (account.archived ? " · Archived" : " · Tracked since " + dayLabel(account.opening_date))}
           glyph={<span className="glyph" data-tone={accountTones[account.kind]} aria-hidden="true"><Icon size={18}/></span>}
           onEdit={() => onManage({ collection: "accounts", row: account })}/>; }) : <p className="setting-empty">Add a bank account, wallet or cash balance to start recording transactions.</p>}
       </section>
@@ -179,8 +186,7 @@ export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport
           onEdit={() => onManage({ collection: "categories", row: category })}/>) : <p className="setting-empty">Add categories to organize your entries.</p>}
       </section>
       <section className="panel settings-panel">
-        <SectionHeading title="Workspace" subtitle="Indonesian rupiah (IDR) · Asia/Jakarta reporting dates"/>
-        <div className="storage-card"><span className="glyph" data-tone={cloud ? "mint" : "blue"} aria-hidden="true"><ShieldCheck size={19}/></span><div><strong>{cloud ? "Private workspace" : "Demo · saved in this browser"}</strong><p>{cloud ? "Your records are available when you sign in to Ledger." : "The demo starts with fictional records. Changes stay in this browser."}</p></div></div>
+        <SectionHeading title={cloud ? "Sign-in" : "Demo data"}/>
         <div className="button-line">{cloud ? <button className="button secondary" onClick={onSignOut}>Sign out</button> : <>
           <button className="button secondary" onClick={onExport}><Download size={16}/> Export demo data</button>
           <button className="button quiet danger" onClick={onReset}><RotateCcw size={16}/> Reset demo</button>

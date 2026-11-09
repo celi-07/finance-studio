@@ -5,7 +5,7 @@ import {
   ArrowLeftRight, Banknote, BanknoteArrowDown, BriefcaseBusiness, ChartNoAxesCombined, ChevronRight, CircleDollarSign,
   HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
 } from "lucide-react";
-import { accountName, activityLabel, activityMoney, dayLabel, type AccountKind, type Activity, type Workspace } from "@/lib/ledger";
+import { accountName, activityLabel, activityMoney, currencyForAccount, dayLabel, type AccountKind, type Activity, type Workspace } from "@/lib/ledger";
 
 export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, wallet: WalletMinimal, cash: Banknote, investment: ChartNoAxesCombined };
 export const accountTones: Record<AccountKind, string> = { bank: "blue", wallet: "amber", cash: "mint", investment: "orchid" };
@@ -65,16 +65,14 @@ export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspa
   const category = workspace.categories.find(item => item.id === row.entry?.category_id);
   const Icon = category ? categoryIcons.get(category.name.toLowerCase()) ?? fallback.icon : fallback.icon;
   const tone = (category && categoryTones.get(category.color)) || fallback.tone;
-  return <button type="button" className="activity-row" onClick={() => onOpen(row)} aria-label={"View " + row.title + ", " + activityLabel(row) + ", " + activityMoney(row)}>
+  const amount = activityMoney(row, currencyForAccount(workspace, row.accountId));
+  return <button type="button" className="activity-row" onClick={() => onOpen(row)} aria-label={"View " + row.title + ", " + activityLabel(row) + ", " + amount}>
     <span className="glyph" data-tone={tone} aria-hidden="true"><Icon size={17} /></span>
     <span className="activity-text"><strong>{row.title}</strong><small>{row.category} <span aria-hidden="true">·</span> {accountName(workspace, row.accountId)}</small></span>
-    <span className="activity-meta"><strong className={row.amount > 0 && row.kind !== "transfer" ? "positive" : ""}>{activityMoney(row)}</strong><small>{dayLabel(row.date)}</small></span>
+    <span className="activity-meta"><strong className={row.amount > 0 && row.kind !== "transfer" ? "positive" : ""}>{amount}</strong><small>{dayLabel(row.date)}</small></span>
     <ChevronRight className="activity-chevron" size={15} aria-hidden="true"/>
   </button>;
 }
 export function Brand() {
-  return <div className="brand"><span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none">
-    <path d="M14.5 13.5h16a4 4 0 0 1 4 4v17h-17a4 4 0 0 1-4-4v-16a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round"/>
-    <path d="M19.5 14v20m4.5-13h6m-6 5h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
-  </svg></span><strong>Ledger</strong></div>;
+  return <div className="brand"><img className="brand-mark" src="/favicon.svg" alt="" width={36} height={36}/><strong>Finance Studio</strong></div>;
 }

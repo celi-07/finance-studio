@@ -1,20 +1,20 @@
-import type { Activity, Workspace } from "./ledger";
+import type { Activity, Currency, Workspace } from "./ledger";
 import { accountName, activity, activityLabel, activityMoney, dayLabel, money, monthly, monthLabel, today } from "./ledger";
 
-export async function downloadStatement(workspace: Workspace, month: string, demo: boolean, filtered?: Activity[]) {
+export async function downloadStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, filtered?: Activity[]) {
   const response = await fetch("/DejaVuSans.ttf");
   if (!response.ok) throw Error("The statement font could not be loaded. Try the download again.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   let binary = "";
   for (let start = 0; start < bytes.length; start += 8192) binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
-  const pdf = await createStatement(workspace, month, demo, btoa(binary), filtered);
-  pdf.save("ledger-statement-" + month + (demo ? "-demo" : "") + ".pdf");
+  const pdf = await createStatement(workspace, month, currency, demo, btoa(binary), filtered);
+  pdf.save("finance-studio-" + month + "-" + currency.toLowerCase() + (demo ? "-demo" : "") + ".pdf");
 }
 
-export async function createStatement(workspace: Workspace, month: string, demo: boolean, font: string, filtered?: Activity[]) {
+export async function createStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, font: string, filtered?: Activity[]) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const report = monthly(workspace, month);
-  const rows = filtered ?? activity(workspace, month);
+  const report = monthly(workspace, month, currency);
+  const rows = filtered ?? activity(workspace, month, currency);
   const pdf = new jsPDF({ format: "a4", unit: "mm", compress: true, putOnlyUsedFonts: true });
   pdf.addFileToVFS("DejaVuSans.ttf", font);
   pdf.addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
@@ -22,21 +22,22 @@ export async function createStatement(workspace: Workspace, month: string, demo:
   const ink = "#1b2333";
   const muted = "#546077";
   const accent = "#234fca";
-  const num = (amount: number) => money(amount).replace(/\u00a0/g, " ");
+  const num = (amount: number) => money(amount, currency).replace(/\u00a0/g, " ");
   const safe = (text: string) => text.replace(/\r\n?/g, "\n").replace(/[\x00-\x09\x0b-\x1f]/g, " ");
-  pdf.setProperties({ title: "Ledger Monthly Statement - " + monthLabel(month), creator: "Ledger" });
-  pdf.setFillColor(accent); pdf.roundedRect(15, 16, 8, 8, 2, 2, "F");
-  pdf.setDrawColor("#ffffff"); pdf.setLineWidth(.4);
-  pdf.line(17.4, 18.4, 17.4, 21.7); pdf.line(18.6, 18.4, 20.6, 18.4);
-  pdf.line(18.6, 19.8, 20.6, 19.8); pdf.line(18.6, 21.2, 20.6, 21.2);
+  pdf.setProperties({ title: "Finance Studio Monthly Statement - " + monthLabel(month) + " - " + currency, creator: "Finance Studio" });
+  pdf.setFillColor("#161616"); pdf.roundedRect(15, 16, 8, 8, 2.1, 2.1, "F");
+  pdf.setFillColor("#639aee"); pdf.roundedRect(17, 18, 2, 2, .5, .5, "F");
+  pdf.setFillColor("#4878c9"); pdf.roundedRect(19.6, 18, 1.4, 1.4, .4, .4, "F");
+  pdf.roundedRect(17, 20.6, 1.4, 1.4, .4, .4, "F");
+  pdf.setFillColor("#91c5f5"); pdf.roundedRect(19, 20, 2, 2, .5, .5, "F");
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(ink);
-  pdf.text("Ledger", 26, 21.6);
+  pdf.text("Finance Studio", 26, 21.6);
   pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(9);
   pdf.text("Issued " + dayLabel(today()), 195, 21.6, { align: "right" });
   pdf.setFont("helvetica", "bold"); pdf.setTextColor(ink); pdf.setFontSize(25);
   pdf.text("Monthly statement", 15, 38);
   pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(10);
-  pdf.text(monthLabel(month) + "  /  IDR  /  Asia/Jakarta", 15, 46);
+  pdf.text(monthLabel(month) + "  /  " + currency, 15, 46);
   if (demo) { pdf.setFont("helvetica", "bold"); pdf.setTextColor(accent); pdf.text("DEMO DATA", 195, 46, { align: "right" }); }
   pdf.setFillColor("#eef2fb"); pdf.roundedRect(15, 52, 180, 20, 2, 2, "F");
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(muted);
@@ -71,7 +72,7 @@ export async function createStatement(workspace: Workspace, month: string, demo:
     rows.length ? rows.map(row => [
       row.date, row.title, row.category === activityLabel(row) ? row.category : activityLabel(row) + "\n" + row.category,
       accountName(workspace, row.accountId) + (row.entry?.destination_account_id ? " > " + accountName(workspace, row.entry.destination_account_id) : ""),
-      activityMoney(row).replace(/\u00a0/g, " "),
+      activityMoney(row, currency).replace(/\u00a0/g, " "),
     ]) : [["", "No matching entries", "", "", ""]], { 0: { cellWidth: 27 }, 2: { cellWidth: 38 }, 3: { cellWidth: 35 }, 4: { halign: "right", cellWidth: 34 } });
   const labels = new Map(workspace.field_definitions.map(field => [field.id, field.label]));
   const details = rows.flatMap(row => {
@@ -100,7 +101,7 @@ export async function createStatement(workspace: Workspace, month: string, demo:
     pdf.setPage(number);
     pdf.setDrawColor("#d7deea"); pdf.line(15, page.getHeight() - 13, 195, page.getHeight() - 13);
     pdf.setTextColor(muted); pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
-    pdf.text("Ledger Monthly Statement  |  " + monthLabel(month) + (demo ? "  |  Demo data" : ""), 15, page.getHeight() - 8);
+    pdf.text("Finance Studio  |  " + monthLabel(month) + "  |  " + currency + (demo ? "  |  Demo data" : ""), 15, page.getHeight() - 8);
     pdf.text(number + " / " + count, 195, page.getHeight() - 8, { align: "right" });
   }
   return pdf;

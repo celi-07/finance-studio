@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { balances, claims, emptyWorkspace, money, monthly, parseDate, parseMoney, validateEntry } from "../lib/ledger.ts";
+import { activity, balances, claims, draftFrom, emptyWorkspace, money, monthly, parseDate, parseMoney, validateEntry } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 
 const month = "2025-02";
@@ -32,6 +32,37 @@ test("parses rupiah minor units and Jakarta calendar dates without floating-poin
   assert.equal(money(Number.MAX_SAFE_INTEGER), "Rp\u00a090.071.992.547.409,91");
   assert.equal(parseDate("29/02/2024"), "2024-02-29");
   assert.equal(parseDate("29/02/2025"), null);
+});
+
+test("preserves whole, two-decimal, and three-decimal currencies without floating-point rounding", () => {
+  assert.equal(parseMoney("USD 1,234.56", "USD"), 123456);
+  assert.equal(parseMoney("USD 1,234.567", "USD"), null);
+  assert.equal(parseMoney("EUR 9.50", "USD"), null);
+  assert.equal(parseMoney("JPY 1,200", "JPY"), 1200);
+  assert.equal(parseMoney("1200.50", "JPY"), null);
+  assert.equal(parseMoney("1.003", "KWD"), 1003);
+  assert.equal(money(1003, "KWD"), "KWD\u00a01.003");
+  assert.equal(parseMoney("90071992547409.91", "USD"), Number.MAX_SAFE_INTEGER);
+  assert.equal(parseMoney("90071992547409.92", "USD"), null);
+});
+
+test("keeps reports, payments, investment values and transaction edits in the selected currency", () => {
+  const workspace = setup();
+  workspace.accounts.push({ ...account("usd", "bank", 12_500), currency: "USD" });
+  workspace.accounts.push({ ...account("usd-fund", "investment"), currency: "USD" });
+  const claim = entry("usd-expense", "expense", 1400, { account_id: "usd", reimbursable_minor: 1000, counterparty: "Group" });
+  workspace.transactions = [entry("idr-income", "income", 99_000), claim];
+  workspace.reimbursement_receipts = [{ id: "usd-payment", expense_id: claim.id, account_id: "usd", received_on: "2025-02-07", amount_minor: 600 }];
+  workspace.investment_valuations = [{ id: "usd-valuation", investment_account_id: "usd-fund", valued_on: "2025-02-10", value_minor: 4_050 }];
+  const usd = monthly(workspace, month, "USD");
+  assert.deepEqual([usd.cash, usd.income, usd.spending, usd.collected, usd.receivable, usd.invested], [11700, 0, 400, 600, 400, 4050]);
+  assert.equal(monthly(workspace, month).income, 99_000);
+  assert.deepEqual(activity(workspace, month, "USD").map(row => row.id), ["usd-payment", claim.id]);
+  const draft = draftFrom(claim, "USD");
+  assert.equal(draft.amount, "14.00");
+  assert.equal(validateEntry(workspace, draft).entry.amount_minor, 1400);
+  assert.equal(validateEntry(workspace, { ...draft, account_id: "bank" }).errors.account_id, "Keep the entry in its original currency.");
+  assert.equal(validateEntry(workspace, { ...draft, id: "transfer", kind: "transfer", destination_account_id: "wallet" }).errors.destination_account_id, "Choose a destination in the same currency.");
 });
 
 test("accounts include openings and transfers while monthly income and spending exclude both", () => {
