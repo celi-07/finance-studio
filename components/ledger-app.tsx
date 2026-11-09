@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { ChartSpline, CircleAlert, Download, HandCoins, LayoutGrid, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
+import { ChartNoAxesCombined, CircleAlert, Download, HandCoins, PanelsTopLeft, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
 import { accountName, activeFields, dayLabel, emptyWorkspace, money, today, type Activity, type Collection, type Entry, type Field as Definition, type Kind, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
@@ -14,10 +14,10 @@ import { ReportingMonth } from "./ledger-picker";
 import { filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 
 const routes = {
-  overview: { label: "Overview", caption: "", icon: LayoutGrid },
+  overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
   transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: ReceiptText },
   reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
-  investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartSpline },
+  investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartNoAxesCombined },
   settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
 type Route = keyof typeof routes;
@@ -229,7 +229,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
           <span className="nav-short">{key === "transactions" ? "Activity" : key === "reimbursements" ? "Claims" : key === "investments" ? "Invest" : label}</span>
         </a>)}
       </nav>
-      <div className="sidebar-bottom"><span className="glyph"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Connected to Supabase" : "Saved in this browser"}</small></div></div>
+      <div className="sidebar-bottom"><span className="glyph" data-tone={configured ? "mint" : "blue"} aria-hidden="true"><ShieldCheck size={18}/></span><div><strong>{configured ? "Private workspace" : "Demo workspace"}</strong><small>{configured ? "Connected to Supabase" : "Saved in this browser"}</small></div></div>
     </aside>
     <main className="main-content" id="main-content">
       <div className="page">

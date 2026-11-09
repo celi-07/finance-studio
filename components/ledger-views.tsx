@@ -2,8 +2,8 @@
 
 import { useState, type CSSProperties, type ReactNode } from "react";
 import {
-  ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, CalendarDays, ChartSpline, ClipboardList,
-  HandCoins, Landmark, Layers3, ListFilter, Plus, Search, ShoppingBag, WalletCards,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, BanknoteArrowDown, BanknoteArrowUp, CalendarDays, ChartNoAxesCombined, ChartPie,
+  FileClock, HandCoins, Landmark, Layers3, ListFilter, Plus, Search, ShoppingBag, TicketCheck, WalletCards, type LucideIcon,
 } from "lucide-react";
 import {
   accountName, activity, claims, dayLabel, kinds, money, monthly, monthLabel, shiftMonth,
@@ -51,6 +51,15 @@ function MovementChart({ workspace, month }: { workspace: Workspace; month: stri
   </section>;
 }
 
+function Metric({ title, value, hint, tone, icon: Icon, month }: {
+  title: string; value: string | number; hint: string; tone: string; icon: LucideIcon; month: string;
+}) {
+  return <section className="metric" data-tone={tone}>
+    <div><span className="glyph" data-tone={tone} aria-hidden="true"><Icon size={19}/></span><h2>{title}</h2></div>
+    <strong key={month}>{value}</strong><p>{hint}</p>
+  </section>;
+}
+
 export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
   workspace: Workspace; month: string; onBrowse: () => void; onOpen: (row: Activity) => void; onAdd: () => void;
 }) {
@@ -59,7 +68,7 @@ export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
   const prior = monthly(workspace, shiftMonth(month, -1));
   const change = report.netCashFlow - prior.netCashFlow;
   const metrics = [
-    { name: "Income", amount: report.income, hint: "Income earned this month", icon: ArrowDownToLine, tone: "mint" },
+    { name: "Income", amount: report.income, hint: "Income earned this month", icon: BanknoteArrowDown, tone: "mint" },
     { name: "Personal spending", amount: report.spending, hint: money(report.gross) + " paid before claims", icon: ShoppingBag, tone: "coral" },
     { name: "Owed to you", amount: report.receivable, hint: report.claims.filter(claim => claim.remaining).length + " open claims at month end", icon: HandCoins, tone: "amber" },
   ];
@@ -69,12 +78,12 @@ export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
         <div className="balance-header">
           <div className="balance-main">
             <span className="balance-label">Cash balance</span>
-            <strong key={report.cash}>{money(report.cash)}</strong>
+            <strong key={month + report.cash}>{money(report.cash)}</strong>
             <p>At the end of {monthLabel(month)}</p>
           </div>
-          <div className="balance-delta">
+          <div className="balance-delta" data-tone={report.netCashFlow > 0 ? "mint" : report.netCashFlow < 0 ? "coral" : "blue"}>
             <span>Net cash flow</span>
-            <strong key={report.netCashFlow}>{report.netCashFlow > 0 ? "+" : report.netCashFlow < 0 ? "−" : ""}{money(Math.abs(report.netCashFlow))}</strong>
+            <strong key={month + report.netCashFlow}>{report.netCashFlow > 0 ? "+" : report.netCashFlow < 0 ? "−" : ""}{money(Math.abs(report.netCashFlow))}</strong>
             {!!(prior.cashIn || prior.cashOut) && <small>{change > 0 ? <ArrowUpRight size={14}/> : change < 0 ? <ArrowDownLeft size={14}/> : null}
               {change ? money(Math.abs(change)) + (change > 0 ? " higher" : " lower") + " than prior month" : "Same as prior month"}</small>}
           </div>
@@ -84,9 +93,9 @@ export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
       <div className="overview-side">
         <section className="panel month-summary">
           <SectionHeading title="Monthly summary"/>
-          <dl>{metrics.map(({ name, amount, hint, icon: Icon, tone }) => <div className="summary-row" key={name}>
+          <dl>{metrics.map(({ name, amount, hint, icon: Icon, tone }) => <div className="summary-row" data-tone={tone} key={name}>
             <dt><span className="glyph" data-tone={tone} aria-hidden="true"><Icon size={17}/></span><span>{name}<small>{hint}</small></span></dt>
-            <dd>{money(amount)}</dd>
+            <dd key={month}>{money(amount)}</dd>
           </div>)}</dl>
         </section>
       <section className="panel spending-panel">
@@ -94,7 +103,7 @@ export function Overview({ workspace, month, onBrowse, onOpen, onAdd }: {
         {report.categories.length ? <ul className="category-bars">{report.categories.map((row, index) => <li key={row.id ?? "uncategorized"}>
           <div><span><i className={"category-dot " + (workspace.categories.find(category => category.id === row.id)?.color ?? palette[index % palette.length])}/>{row.name}</span><strong>{money(row.amount)}</strong></div>
           <div className="bar-track" aria-hidden="true"><i className={workspace.categories.find(category => category.id === row.id)?.color ?? palette[index % palette.length]} style={{ width: (row.amount / report.spending * 100) + "%" }}/></div>
-        </li>)}</ul> : <Empty title="No spending yet" description="Expenses for this month will appear here." icon={Layers3}/>}
+        </li>)}</ul> : <Empty title="No spending yet" description="Expenses for this month will appear here." icon={ChartPie}/>}
       </section>
       </div>
     </div>
@@ -166,9 +175,9 @@ export function Reimbursements({ workspace, month, onReceive, onOpen }: {
   const groups = Map.groupBy(matching, claim => claim.entry.counterparty);
   return <>
     <div className="metric-grid">
-      <section className="metric panel"><div><span className="glyph" data-tone="amber"><HandCoins size={19}/></span><h2>Outstanding at month end</h2></div><strong>{money(report.receivable)}</strong><p>From current and earlier months</p></section>
-      <section className="metric panel"><div><span className="glyph" data-tone="mint"><ArrowDownLeft size={19}/></span><h2>Received this month</h2></div><strong>{money(report.collected)}</strong><p>{report.receipts.length} {report.receipts.length === 1 ? "payment" : "payments"}</p></section>
-      <section className="metric panel"><div><span className="glyph"><ClipboardList size={19}/></span><h2>Open claims</h2></div><strong>{report.claims.filter(claim => claim.remaining).length}</strong><p>{report.claims.filter(claim => claim.overdue).length} overdue at reporting date</p></section>
+      <Metric title="Outstanding at month end" value={money(report.receivable)} hint="From current and earlier months" tone="amber" icon={HandCoins} month={month}/>
+      <Metric title="Received this month" value={money(report.collected)} hint={report.receipts.length + (report.receipts.length === 1 ? " payment" : " payments")} tone="mint" icon={TicketCheck} month={month}/>
+      <Metric title="Open claims" value={report.claims.filter(claim => claim.remaining).length} hint={report.claims.filter(claim => claim.overdue).length + " overdue at reporting date"} tone="orchid" icon={FileClock} month={month}/>
     </div>
     <div className="status-tabs segmented" style={{ "--selection": claimStatuses.indexOf(status) } as CSSProperties} role="group" aria-label="Filter reimbursements">{claimStatuses.map(label => <button key={label} aria-pressed={status === label} onClick={() => setStatus(label)}>{label}</button>)}</div>
     {!groups.size && <div className="panel"><Empty title="No matching claims" description="Mark an expense as reimbursable when you add it. Claims appear here through the selected month." icon={HandCoins}/></div>}
@@ -198,16 +207,16 @@ export function Investments({ workspace, month, onEntry, onValue, onSettings }: 
   const holdings = report.accounts.filter(row => row.account.kind === "investment");
   return <>
     <div className="metric-grid">
-      <section className="metric panel"><div><span className="glyph" data-tone="orchid"><ChartSpline size={19}/></span><h2>Estimated investment value</h2></div><strong>{money(report.invested)}</strong><p>Using manual valuations and later movements</p></section>
-      <section className="metric panel"><div><span className="glyph" data-tone="mint"><ArrowDownLeft size={19}/></span><h2>Contributed this month</h2></div><strong>{money(report.contribution)}</strong><p>Cash moved into investments</p></section>
-      <section className="metric panel"><div><span className="glyph"><ArrowUpRight size={19}/></span><h2>Withdrawn this month</h2></div><strong>{money(report.withdrawal)}</strong><p>Cash returned from investments</p></section>
+      <Metric title="Estimated investment value" value={money(report.invested)} hint="Using manual valuations and later movements" tone="orchid" icon={ChartNoAxesCombined} month={month}/>
+      <Metric title="Contributed this month" value={money(report.contribution)} hint="Cash moved into investments" tone="mint" icon={BanknoteArrowUp} month={month}/>
+      <Metric title="Withdrawn this month" value={money(report.withdrawal)} hint="Cash returned from investments" tone="blue" icon={BanknoteArrowDown} month={month}/>
     </div>
     <SectionHeading title="Holdings"/>
     {holdings.length ? <div className="holdings-grid">{holdings.map(({ account, basis, value, valuation }) => <article className="panel investment-card" key={account.id}>
-      <div className="investment-name"><span className="glyph" data-tone="orchid"><ChartSpline size={20}/></span><div><h3>{account.name}</h3><p>{account.archived ? "Archived" : valuation ? "Valued " + dayLabel(valuation.valued_on) : "Contribution balance"}</p></div></div>
+      <div className="investment-name"><span className="glyph" data-tone="orchid" aria-hidden="true"><ChartNoAxesCombined size={20}/></span><div><h3>{account.name}</h3><p>{account.archived ? "Archived" : valuation ? "Valued " + dayLabel(valuation.valued_on) : "Contribution balance"}</p></div></div>
       <div className="investment-estimate"><span>Estimated value</span><strong className="investment-value">{money(value)}</strong></div>
       <dl className="compact-details"><div><dt>Contributed balance</dt><dd>{money(basis)}</dd></div><div><dt>Unrealized change</dt><dd className={value > basis ? "positive" : ""}>{valuation ? (value >= basis ? "+" : "−") + money(Math.abs(value - basis)) : "—"}</dd></div></dl>
       {!account.archived && <div className="button-line"><button className="button secondary" onClick={() => onEntry("investment_contribution", account.id)}>Contribute</button><button className="button secondary" onClick={() => onEntry("investment_withdrawal", account.id)}>Withdraw</button><button className="button quiet" onClick={() => onValue(account.id)}>Update valuation</button></div>}
-    </article>)}</div> : <div className="panel"><Empty title="No investment accounts yet" description="Create an investment account to track contributions and valuations." icon={ChartSpline} action={<button className="button secondary" onClick={onSettings}>Manage accounts</button>}/></div>}
+    </article>)}</div> : <div className="panel"><Empty title="No investment accounts yet" description="Create an investment account to track contributions and valuations." icon={ChartNoAxesCombined} action={<button className="button secondary" onClick={onSettings}>Manage accounts</button>}/></div>}
   </>;
 }

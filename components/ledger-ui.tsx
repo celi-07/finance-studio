@@ -2,20 +2,20 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import {
-  ArrowDownToLine, ArrowLeftRight, Banknote, BriefcaseBusiness, ChartSpline, ChevronRight, CircleDollarSign,
-  HandCoins, HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TrainFront, Utensils, WalletCards, X, type LucideIcon,
+  ArrowLeftRight, Banknote, BanknoteArrowDown, BriefcaseBusiness, ChartNoAxesCombined, ChevronRight, CircleDollarSign,
+  HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
 } from "lucide-react";
 import { accountName, activityLabel, activityMoney, dayLabel, type AccountKind, type Activity, type Workspace } from "@/lib/ledger";
 
-export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, wallet: WalletCards, cash: Banknote, investment: ChartSpline };
-export const accountTones: Record<AccountKind, string> = { bank: "blue", wallet: "orchid", cash: "mint", investment: "orchid" };
+export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, wallet: WalletMinimal, cash: Banknote, investment: ChartNoAxesCombined };
+export const accountTones: Record<AccountKind, string> = { bank: "blue", wallet: "amber", cash: "mint", investment: "orchid" };
 const activityStyles: Record<Activity["kind"], { icon: LucideIcon; tone: string }> = {
   expense: { icon: ReceiptText, tone: "coral" },
-  income: { icon: ArrowDownToLine, tone: "mint" },
+  income: { icon: BanknoteArrowDown, tone: "mint" },
   transfer: { icon: ArrowLeftRight, tone: "blue" },
-  investment_contribution: { icon: ChartSpline, tone: "orchid" },
-  investment_withdrawal: { icon: ChartSpline, tone: "orchid" },
-  reimbursement_receipt: { icon: HandCoins, tone: "amber" },
+  investment_contribution: { icon: TrendingUp, tone: "orchid" },
+  investment_withdrawal: { icon: TrendingDown, tone: "blue" },
+  reimbursement_receipt: { icon: TicketCheck, tone: "mint" },
 };
 const categoryIcons = new Map<string, LucideIcon>([
   ["food & drink", Utensils], ["transport", TrainFront], ["home & bills", House],

@@ -24,3 +24,10 @@ export function readCloudConfig(rawUrl?: string, rawKey?: string): CloudConfig |
   }
   return { url, key };
 }
+
+export function configuredCloud(env: Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY">) {
+  if (env.SUPABASE_URL?.trim() || env.SUPABASE_PUBLISHABLE_KEY?.trim()) {
+    return readCloudConfig(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY);
+  }
+  return readCloudConfig(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+}
