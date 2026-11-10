@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { emptyWorkspace, type Collection, type Workspace } from "./ledger";
+import { emptyWorkspace, type Collection, type FinanceBook, type Workspace } from "./ledger";
 import type { CloudConfig } from "./ledger-cloud-config";
 
 let connection: { url: string; key: string; client: SupabaseClient } | undefined;
@@ -46,4 +46,9 @@ export async function upsertCloud<K extends Collection>(supabase: SupabaseClient
 export async function deleteCloud(supabase: SupabaseClient, userId: string, collection: Collection, id: string, paymentGroup?: string) {
   const { error } = await supabase.from(collection).delete().eq("user_id", userId).eq(paymentGroup ? "payment_group_id" : "id", paymentGroup ?? id);
   if (error) throw writeIssue(error, "Couldn’t delete this entry. Try again in a moment.");
+}
+
+export async function deleteCloudSheet(supabase: SupabaseClient, book: FinanceBook) {
+  const { error } = await supabase.rpc("ledger_delete_sheet", { sheet_id: book.id, confirmed_name: book.name });
+  if (error) throw writeIssue(error, "Couldn’t delete this sheet. Try again in a moment.");
 }

@@ -17,8 +17,8 @@ const kindLabels = { bank: "Bank account", wallet: "E-wallet", cash: "Cash on ha
 const currencyOptions = Object.entries(currencies).map(([value, label]) => ({ value, label: value + " · " + label }));
 const typeLabels: Record<FieldType, string> = { text: "Text", number: "Number", date: "Date", select: "Select", checkbox: "Checkbox" };
 
-export function TaskForm({ title, subtitle, close, submit, label, children, disabled }: {
-  title: string; subtitle?: string; close: () => void; submit: (data: FormData) => Promise<void>; label: string; children?: ReactNode; disabled?: boolean;
+export function TaskForm({ title, subtitle, close, submit, label, children, disabled, destructive }: {
+  title: string; subtitle?: string; close: () => void; submit: (data: FormData) => Promise<void>; label: string; children?: ReactNode; disabled?: boolean; destructive?: boolean;
 }) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +34,7 @@ export function TaskForm({ title, subtitle, close, submit, label, children, disa
   return <Modal title={title} subtitle={subtitle} onClose={close} locked={working}>
     <form onSubmit={save}><div className="form-grid">{children}</div>
       {error && <p className="form-message error" role="alert">{error}</p>}
-      <div className="modal-footer"><button className="button secondary" type="button" onClick={close} disabled={working}>Cancel</button><button className="button primary" disabled={working || disabled}>{working ? "Saving…" : label}</button></div>
+      <div className="modal-footer"><button className="button secondary" type="button" onClick={close} disabled={working}>Cancel</button><button className={destructive ? "button secondary danger" : "button primary"} disabled={working || disabled}>{working ? "Saving…" : label}</button></div>
     </form>
   </Modal>;
 }
@@ -263,6 +263,20 @@ export function BookDialog({ book, books, onSave, close }: { book?: FinanceBook;
     if (name.toLowerCase() === "personal" || books.some(item => item.id !== book?.id && item.name.toLowerCase() === name.toLowerCase())) throw Error("A sheet with this name already exists.");
     await onSave({ id: book?.id ?? id, name });
   }}><Field label="Sheet name" full><input name="name" defaultValue={book?.name} placeholder="e.g. Small business" maxLength={60} required/></Field></TaskForm>;
+}
+
+export function DeleteSheetDialog({ book, close, onDelete }: { book: FinanceBook; close: () => void; onDelete: () => Promise<void> }) {
+  const [name, setName] = useState("");
+  const matches = name.trim() === book.name;
+  return <TaskForm title="Delete this sheet?" subtitle={book.name}
+    close={close} label="Delete sheet" destructive disabled={!matches} submit={async data => {
+      if (value(data, "sheet-name") !== book.name) throw Error("Enter the sheet’s exact name.");
+      await onDelete();
+    }}>
+    <p className="full muted">This permanently deletes the sheet and its accounts, transactions, reimbursements, investments, goals, and settings.</p>
+    <Field label="Type the sheet name to confirm" full><input name="sheet-name" value={name}
+      autoComplete="off" onChange={event => setName(event.target.value)} required/></Field>
+  </TaskForm>;
 }
 
 const guideSteps = [

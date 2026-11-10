@@ -2,18 +2,19 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { isAuthError } from "@supabase/supabase-js";
-import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal, Sparkles } from "lucide-react";
-import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, entryClaims, inPeriod, isCurrency, money, paymentKey, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Receipt, type SavingsGoal, type Workspace } from "@/lib/ledger";
+import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, entryClaims, withoutFinanceSheet, inPeriod, isCurrency, money, paymentKey, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Receipt, type SavingsGoal, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
-import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
+import { deleteCloud, deleteCloudSheet, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
+import { readVerificationClaims } from "@/lib/ledger-auth";
 import type { CloudConfig } from "@/lib/ledger-cloud-config";
 import { downloadStatement } from "@/lib/statement";
 import { EntryDialog } from "./ledger-entry";
-import { BookDialog, FinanceGuide, ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
+import { BookDialog, DeleteSheetDialog, FinanceGuide, ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
 import { Brand, Empty, Field, Modal } from "./ledger-ui";
 import { Picker, ReportingPeriod, type PeriodMode } from "./ledger-picker";
 import { CombinedOverview, filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
-import { FinanceWelcome, ProviderSignIn } from "./finance-welcome";
+import { FinanceWelcome, ProviderSignIn, VerifyEmail } from "./finance-welcome";
 import { ActivityCalendar, GoalDialog, SavingsGoals } from "./ledger-planning";
 import { EntryAssistant } from "./ledger-assistant";
 
@@ -31,6 +32,7 @@ type Panel =
   | { type: "entry"; original?: Entry; kind?: Kind; preset?: string; bulk?: boolean }
   | { type: "receive"; id?: string; incomeId?: string } | { type: "value"; id: string } | { type: "manage"; edit: Management }
   | { type: "delete"; entry: Entry } | { type: "receipt"; receipt: Receipt } | { type: "delete-receipt"; receipt: Receipt } | { type: "reset" } | { type: "guide" } | { type: "book"; book?: FinanceBook }
+  | { type: "delete-sheet"; book: FinanceBook }
   | { type: "goal"; goal?: SavingsGoal } | { type: "delete-goal"; goal: SavingsGoal };
 type AuthMode = "sign-in" | "sign-up" | "reset" | "recover";
 
@@ -49,7 +51,7 @@ function authMessage(error: unknown, mode: AuthMode) {
   }[mode];
 }
 
-function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => void; onBack: () => void; returnError: boolean }) {
+function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => Promise<void>; onBack: () => void; returnError: boolean }) {
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
@@ -70,7 +72,7 @@ function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { clo
       if (current === "recover") {
         const { error: issue } = await auth.updateUser({ password });
         if (issue) throw issue;
-        onRecovered();
+        await onRecovered();
       } else if (current === "reset") {
         const { error: issue } = await auth.resetPasswordForEmail(email, { redirectTo: origin + "?recover=1" });
         if (issue) throw issue;
@@ -137,7 +139,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const owner = useRef<string | null>(null);
-  const initialized = useRef(false);
+  const [verification, setVerification] = useState<{ id: string; email: string } | null>(null);
   const saving = useRef(false);
   const [recovery, setRecovery] = useState(false);
   const [problem, setProblem] = useState("");
@@ -166,6 +168,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   }, []);
   useEffect(() => {
     let mounted = true;
+    let sessionKey: string | undefined;
+    let recovering = false;
     if (!cloud) {
       try { update(readDemo()); }
       catch (error) { setProblem(errorText(error)); }
@@ -177,11 +181,16 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         if (!mounted) return;
         const user = session?.user ?? null;
-        const nextOwner = user?.id ?? null;
-        if (cloud.authMode !== "oauth" && event === "PASSWORD_RECOVERY" && user) setRecovery(true);
-        if (initialized.current && nextOwner === owner.current) return;
-        initialized.current = true;
+        const proof = session ? readVerificationClaims(session.access_token) : null;
+        if (!session) recovering = false;
+        if (event === "PASSWORD_RECOVERY" && user && cloud.authMode !== "oauth") recovering = true;
+        const nextOwner = !recovering && proof?.verified && user ? user.id : null;
+        const nextKey = proof ? proof.id + (recovering ? ":recover" : proof.verified ? ":verified" : ":pending") : user ? user.id + ":invalid" : "";
+        if (nextKey === sessionKey) return;
+        sessionKey = nextKey;
         owner.current = nextOwner;
+        setRecovery(recovering);
+        setVerification(!recovering && !nextOwner && proof?.email ? { id: proof.id, email: proof.email } : null);
         setSignedIn(Boolean(nextOwner));
         setBookId(""); setAllSheets(true); setAllCurrencies(true); setPeriodMode("month");
         setPreferredCurrency(defaultCurrency);
@@ -189,16 +198,20 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         setPersonFilter(undefined);
         update(emptyWorkspace);
         setPanel(null); setProblem(""); setNotice("");
-        if (!nextOwner) { setRecovery(false); setLoading(false); return; }
+        if (!nextOwner) {
+          if (user && !recovering && !proof?.email) setProblem("This sign-in has no email address to verify. Sign out and choose an account with an email address.");
+          setLoading(false);
+          return;
+        }
         setLoading(true);
         setTimeout(() => {
           loadCloud(supabase, nextOwner).then(workspace => {
-            if (mounted && owner.current === nextOwner) update(workspace);
-          }).catch(() => { if (mounted && owner.current === nextOwner) setProblem("Couldn’t load your records. Try again in a moment."); })
-            .finally(() => { if (mounted && owner.current === nextOwner) setLoading(false); });
+            if (mounted && sessionKey === nextKey) update(workspace);
+          }).catch(() => { if (mounted && sessionKey === nextKey) setProblem("Couldn’t load your records. Try again in a moment."); })
+            .finally(() => { if (mounted && sessionKey === nextKey) setLoading(false); });
         }, 0);
       });
-      return () => { mounted = false; initialized.current = false; subscription.unsubscribe(); };
+      return () => { mounted = false; subscription.unsubscribe(); };
     } catch { setProblem("Couldn’t connect to Finance Studio. Try again in a moment."); setLoading(false); }
   }, [cloud]);
   useEffect(() => {
@@ -287,6 +300,21 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       setNotice("Goal removed");
     } finally { saving.current = false; }
   }
+  async function removeSheet(book: FinanceBook) {
+    if (saving.current) throw Error("Another change is being saved. Try again in a moment.");
+    const currentOwner = owner.current;
+    if (configured && !currentOwner) throw Error("Verify your email before deleting a sheet.");
+    saving.current = true;
+    try {
+      if (cloud && currentOwner) await deleteCloudSheet(getSupabase(cloud), book);
+      if (currentOwner !== owner.current) throw Error("Your account changed while deleting.");
+      const next = withoutFinanceSheet(dataRef.current, book.id);
+      if (!configured) writeDemo(next);
+      update(next);
+      selectSheet("");
+      setNotice("Sheet deleted");
+    } finally { saving.current = false; }
+  }
   async function moveField(field: Definition, direction: number) {
     const ordered = activeFields(bookData);
     const index = ordered.findIndex(row => row.id === field.id);
@@ -316,9 +344,15 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     catch { setProblem("Couldn’t sign out. Try again in a moment."); }
   }
 
-  if (cloud && (recovery || (!loading && !signedIn && !problem && showAccess))) return <AuthScreen cloud={cloud} recovery={recovery} returnError={returnError} onBack={() => { setShowAccess(false); setReturnError(false); }} onRecovered={() => { setRecovery(false); window.history.replaceState(null, "", "/"); }}/>;
+  if (cloud && verification) return <VerifyEmail key={verification.id} cloud={cloud} email={verification.email} onSignOut={signOut} signOutProblem={problem}/>;
+  if (cloud && (recovery || (!loading && !signedIn && !problem && showAccess))) return <AuthScreen cloud={cloud} recovery={recovery} returnError={returnError} onBack={() => { setShowAccess(false); setReturnError(false); }} onRecovered={async () => {
+    const { error } = await getSupabase(cloud).auth.signOut({ scope: "local" });
+    if (error) throw error;
+    setShowAccess(true);
+    window.history.replaceState(null, "", "/");
+  }}/>;
   if ((!configured && !showAccess) || configured && !loading && !signedIn && !problem) return <FinanceWelcome demo={!configured} onStart={() => setShowAccess(true)}/>;
-  if (configured && (loading || !signedIn || problem && data === emptyWorkspace)) return <main className="auth-screen"><section className="panel auth-panel"><Brand/>{problem ? <Empty title="Couldn’t load your records" description={problem} action={<div className="button-line"><button className="button secondary" onClick={() => window.location.reload()}>Try again</button>{signedIn && <button className="button quiet" onClick={signOut}>Sign out</button>}</div>}/> : <p role="status">Loading your records…</p>}</section></main>;
+  if (configured && (loading || !signedIn || problem && data === emptyWorkspace)) return <main className="auth-screen"><section className="panel auth-panel"><Brand/>{problem ? <Empty title="Couldn’t load your records" description={problem} action={<div className="button-line"><button className="button secondary" onClick={() => window.location.reload()}>Try again</button><button className="button quiet" onClick={signOut}>Sign out</button></div>}/> : <p role="status">Loading your records…</p>}</section></main>;
 
   const page = routes[route];
   const close = () => setPanel(null);
@@ -355,7 +389,10 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
             {route === "transactions" && <button className="button secondary sheet-action" onClick={() => openEntry(undefined, undefined, true)}><Sheet size={17}/> Spreadsheet</button>}
             {route === "settings" ? <>
               <button className="button primary" onClick={() => setPanel({ type: "book" })}><Plus size={17}/> Add sheet</button>
-              {currentSheet.id && <button className="button quiet" onClick={() => setPanel({ type: "book", book: currentSheet })}><Pencil size={16}/> Rename sheet</button>}
+              {currentSheet.id && <>
+                <button className="button quiet" onClick={() => setPanel({ type: "book", book: currentSheet })}><Pencil size={16}/> Rename sheet</button>
+                <button className="button danger quiet" onClick={() => setPanel({ type: "delete-sheet", book: currentSheet })}><Trash2 size={16}/> Delete sheet</button>
+              </>}
               {configured && <button className="button quiet" onClick={signOut}><LogOut size={16}/> Sign out</button>}
             </> : reportingPage && !combinedSheets && <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>}
           </div>
@@ -403,6 +440,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     {panel?.type === "delete-goal" && <TaskForm title="Remove this goal?" subtitle="The set-aside amount becomes available to spend." close={close}
       submit={() => removeGoal(panel.goal)} label="Remove goal"><p className="full muted">{panel.goal.name}</p></TaskForm>}
     {panel?.type === "book" && <BookDialog book={panel.book} books={data.finance_books} close={close} onSave={async book => { await save("finance_books", [book]); selectSheet(book.id); }}/>}
+    {panel?.type === "delete-sheet" && <DeleteSheetDialog book={panel.book} close={close} onDelete={() => removeSheet(panel.book)}/>}
     {panel?.type === "manage" && <ManagementDialog workspace={bookData} edit={panel.edit} initialCurrency={currency} close={close}
       save={(collection, rows) => save(collection, rows.map(row => ({ ...row, ledger_id: currentSheet.id || null })) as typeof rows)}/>}
     {panel?.type === "receive" && <ReceiptDialog workspace={bookData} initialClaim={panel.id} incomeId={panel.incomeId} close={close} save={async receipts => {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, withoutFinanceSheet, workspaceForBook } from "../lib/ledger.ts";
+import { readVerificationClaims } from "../lib/ledger-auth.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
 
@@ -129,6 +130,35 @@ test("Overview trends use monthly income, gross expenses, and wealth in one curr
     { month: "2025-02", wealth: 107_000, income: 0, expenses: 5_000 },
   ]);
   assert.equal(overviewHistory(workspace, "all", "USD", "2025-02").at(-1).wealth, 120_000);
+});
+
+test("only a session with an email and OTP proof opens the ledger", () => {
+  const token = (method, phone = "") => "header." + Buffer.from(JSON.stringify({
+    session_id: "session", email: "ledger@example.com", phone, amr: [{ method }],
+  })).toString("base64url") + ".signature";
+  for (const method of ["oauth", "password", "recovery"]) assert.equal(readVerificationClaims(token(method)).verified, false);
+  assert.equal(readVerificationClaims(token("otp", "+123456789")).verified, false);
+  assert.deepEqual(readVerificationClaims(token("otp")), { id: "session", email: "ledger@example.com", verified: true });
+  assert.equal(readVerificationClaims("invalid"), null);
+});
+
+test("deleting a custom sheet removes its related records while keeping Personal and other sheets", () => {
+  const workspace = setup();
+  workspace.finance_books = [{ id: "shop", name: "Shop" }, { id: "side", name: "Side" }];
+  workspace.accounts.push({ ...account("shop-bank", "bank"), ledger_id: "shop" }, { ...account("shop-fund", "investment"), ledger_id: "shop" });
+  workspace.transactions = [entry("personal", "expense", 300), entry("shop-order", "expense", 300, { account_id: "shop-bank" })];
+  workspace.reimbursement_receipts = [{ id: "pay", expense_id: "shop-order", account_id: "shop-bank" }];
+  workspace.investment_valuations = [{ id: "value", investment_account_id: "shop-fund" }];
+  for (const collection of ["categories", "field_definitions", "savings_goals", "reimbursement_people"]) {
+    workspace[collection] = [{ id: "personal" }, { id: "shop", ledger_id: "shop" }];
+  }
+  const result = withoutFinanceSheet(workspace, "shop");
+  assert.deepEqual(result.finance_books.map(row => row.id), ["side"]);
+  assert.deepEqual(result.transactions.map(row => row.id), ["personal"]);
+  assert.deepEqual(result.accounts.map(row => row.id), ["bank", "wallet", "fund"]);
+  for (const collection of ["reimbursement_receipts", "investment_valuations"]) assert.equal(result[collection].length, 0);
+  for (const collection of ["categories", "field_definitions", "savings_goals", "reimbursement_people"]) assert.deepEqual(result[collection].map(row => row.id), ["personal"]);
+  assert.equal(withoutFinanceSheet(workspace, ""), workspace);
 });
 
 test("only browser-safe Supabase settings reach the client", () => {

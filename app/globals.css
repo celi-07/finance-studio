@@ -403,7 +403,7 @@ strong { font-weight: 660; }
 .preview-amounts > div { display: flex; justify-content: space-between; gap: 10px; padding-block: 8px; border-bottom: 1px solid var(--line); font-size: .84rem; }
 .preview-amounts > div:last-child { border-bottom: 0; }
 .preview-amounts dd { margin: 0; font-weight: 650; text-align: end; }
-.welcome-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 25px; padding-block: 28px; border-block: 1px solid var(--line); }
+.welcome-features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 25px; padding-block: 28px; border-block: 1px solid var(--line); }
 .welcome-features h2 { margin-top: 9px; }
 .welcome-features p { color: var(--muted); font-size: .86rem; margin-top: 4px; }
 .welcome-footer { font-size: .82rem; color: var(--muted); }
