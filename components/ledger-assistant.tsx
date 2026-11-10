@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowUp, Check, Sparkles } from "lucide-react";
-import { money, parseMoney, validateEntry, type Currency, type Entry, type EntryDraft, type Workspace } from "@/lib/ledger";
+import { money, parseMoney, validateFormEntry, type Currency, type Entry, type EntryDraft, type ReimbursementMode, type Workspace } from "@/lib/ledger";
 import { quickEntry, reviseQuickEntry, type QuickDraft } from "@/lib/quick-entry";
 import { EntryFields } from "./ledger-entry";
 
@@ -12,7 +12,7 @@ export function EntryAssistant({ workspace, currency, onSave }: {
   const [messages, setMessages] = useState<{ role: "you" | "assistant"; text: string }[]>([]);
   const [prompt, setPrompt] = useState("");
   const [preview, setPreview] = useState<QuickDraft | null>(null);
-  const [claim, setClaim] = useState(false);
+  const [claim, setClaim] = useState<ReimbursementMode>("none");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState("");
   const [working, setWorking] = useState(false);
@@ -30,7 +30,7 @@ export function EntryAssistant({ workspace, currency, onSave }: {
     try {
       const next = preview ? reviseQuickEntry(workspace, preview, text) : quickEntry(workspace, text, currency);
       setPreview(next);
-      if (next.draft.id !== preview?.draft.id || next.draft.kind !== "expense") setClaim(false);
+      if (next.draft.id !== preview?.draft.id || next.draft.kind !== "expense") setClaim("none");
       setErrors({}); setProblem("");
       reply = next.draft.account_id
         ? preview ? "I updated the draft. Check the preview before submitting." : "I prepared a draft. You can edit it or tell me what to change."
@@ -50,7 +50,7 @@ export function EntryAssistant({ workspace, currency, onSave }: {
     if (!preview || working) return;
     setProblem("");
     const { draft } = preview;
-    const result = validateEntry(workspace, claim ? draft : { ...draft, reimbursable: "", counterparty: "", due_on: null });
+    const result = validateFormEntry(workspace, draft, claim);
     setErrors(result.errors ?? {});
     if (!result.entry) {
       requestAnimationFrame(() => form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
@@ -61,7 +61,7 @@ export function EntryAssistant({ workspace, currency, onSave }: {
     try {
       await onSave(entry);
       setMessages(current => [...current, { role: "assistant" as const, text: `Saved “${entry.description}” to this sheet.` }].slice(-40));
-      setPreview(null); setClaim(false);
+      setPreview(null); setClaim("none");
     } catch (error) {
       setProblem(error instanceof Error ? error.message : "Couldn’t save this transaction. Try again.");
     } finally { setWorking(false); }
@@ -89,7 +89,7 @@ export function EntryAssistant({ workspace, currency, onSave }: {
       </fieldset>
       {problem && <p className="form-message error" role="alert">{problem}</p>}
       <div className="button-line">
-        <button type="button" className="button quiet" disabled={working} onClick={() => { setPreview(null); setErrors({}); setClaim(false); setProblem(""); }}>Discard draft</button>
+        <button type="button" className="button quiet" disabled={working} onClick={() => { setPreview(null); setErrors({}); setClaim("none"); setProblem(""); }}>Discard draft</button>
         <button className="button primary" disabled={working}><Check size={17} aria-hidden="true"/> {working ? "Saving…" : "Submit transaction"}</button>
       </div>
     </form> : <section className="panel assistant-preview assistant-empty"><h2>Transaction preview</h2><p>Send a message to start an editable draft.</p></section>}

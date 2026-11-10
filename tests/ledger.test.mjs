@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, validateEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, validateEntry, validateFormEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
 
@@ -208,6 +208,20 @@ test("a reimbursement saves null for an empty or whitespace-only due date", () =
   const draft = draftFrom(entry("claim", "expense", 3_000, { reimbursable_minor: 2_000, counterparty: "Team" }));
   for (const due_on of [null, "", "   "]) assert.equal(validateEntry(workspace, { ...draft, due_on }).entry.due_on, null);
   assert.match(validateEntry(workspace, { ...draft, due_on: "2025-02-01" }).errors.due_on, /on or after/);
+});
+
+test("the form distinguishes partial, full and non-reimbursable expenses", () => {
+  const workspace = setup();
+  const draft = { ...draftFrom(entry("claim", "expense", 10_000)), counterparty: "Team", reimbursable: "20" };
+  assert.equal(validateFormEntry(workspace, draft, "partial").entry.reimbursable_minor, 2_000);
+  const full = validateFormEntry(workspace, { ...draft, amount: "140" }, "full").entry;
+  assert.equal(full.reimbursable_minor, 14_000);
+  assert.equal(full.due_on, null);
+  assert.match(validateFormEntry(workspace, { ...draft, reimbursable: "" }, "partial").errors.reimbursable, /greater than zero/);
+  assert.match(validateFormEntry(workspace, { ...draft, reimbursable: draft.amount }, "partial").errors.reimbursable, /less than the expense/);
+  assert.match(validateFormEntry(workspace, { ...draft, counterparty: "" }, "full").errors.counterparty, /owes/);
+  const ordinary = validateFormEntry(workspace, draft, "none").entry;
+  assert.deepEqual([ordinary.reimbursable_minor, ordinary.counterparty], [0, ""]);
 });
 
 test("the assistant extracts Indonesian named dates and edits a draft without guessing between accounts", () => {
