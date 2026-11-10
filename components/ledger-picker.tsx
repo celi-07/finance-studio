@@ -8,7 +8,7 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
 import { dayLabel, monthLabel, shiftMonth, today } from "@/lib/ledger";
 
-type Option = { value: string; label: string; swatch?: string };
+type Option = { value: string; label: string; swatch?: string; disabled?: boolean };
 type PickerProps = {
   label: string;
   options: Option[];
@@ -59,7 +59,7 @@ export function Picker({ label, options, value, defaultValue = "", onValueChange
       <Select.Positioner alignItemWithTrigger={false} positionMethod="fixed" align="start" sideOffset={7} collisionPadding={10} className="picker-positioner">
         <Select.Popup className="picker-menu" finalFocus={() => scrollDismissal.current ?? true}>
           <Select.List className="picker-options">
-            {options.map(option => <Select.Item value={option.value} key={option.value} className="picker-option">
+            {options.map(option => <Select.Item value={option.value} key={option.value} className="picker-option" disabled={option.disabled}>
               {option.swatch && <span className={"category-dot " + option.swatch} aria-hidden="true"/>}
               <Select.ItemText>{option.label}</Select.ItemText>
               <Select.ItemIndicator className="picker-check"><Check size={15} strokeWidth={2.4}/></Select.ItemIndicator>

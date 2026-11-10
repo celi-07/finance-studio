@@ -203,7 +203,7 @@ strong { font-weight: 660; }
 .account-card .glyph { width: 32px; height: 32px; }
 .account-card p, .investment-name p { color: var(--muted); font-size: .72rem; text-transform: capitalize; }
 .account-card > strong { font-size: .88rem; text-align: end; font-variant-numeric: tabular-nums; }
-.activity-row { display: flex; width: 100%; text-align: start; align-items: center; gap: 10px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--ink); padding: 10px 3px; min-height: 57px; }
+.activity-row { display: flex; width: 100%; text-align: start; align-items: center; gap: 10px; border: 0; border-top: 1px solid var(--line); border-radius: var(--radius); background: transparent; color: var(--ink); padding: 10px 8px; min-height: 57px; }
 .activity-row:hover { background: var(--hover); }
 .activity-chevron { color: var(--muted); opacity: .68; }
 .activity-text { min-width: 0; flex: 1; }
@@ -248,7 +248,10 @@ strong { font-weight: 660; }
 .claim-card .button { margin-top: 12px; }
 .receipt-list { font-size: .8rem; margin-top: 12px; }
 .receipt-list summary { cursor: pointer; font-weight: 640; }
-.receipt-list > div, .compact-details > div { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.receipt-list > button, .compact-details > div { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.receipt-list > button { width: 100%; align-items: center; min-height: 38px; text-align: start; color: var(--ink); background: transparent; border-radius: 8px; padding-inline: 7px; }
+.receipt-list > button > span { margin-inline-end: auto; }
+.receipt-list > button:hover { background: var(--hover); }
 .investment-name { display: flex; align-items: center; gap: 9px; }
 .investment-value { display: block; margin-top: 12px; font-size: 1.55rem; letter-spacing: -.045em; }
 .compact-details { margin: 7px 0 13px; }
@@ -282,7 +285,8 @@ strong { font-weight: 660; }
 .field .field-error, .field-error { color: var(--rose-ink); }
 .field [aria-invalid=true], .entry-grid [aria-invalid=true] { border-color: #b04456; background: #fff4f5; }
 .archived-field { display: grid; gap: 3px; font-size: .8rem; color: var(--muted); }
-.mode-switch { margin-inline: 20px; }
+.entry-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 4px 20px 18px; }
+.entry-toolbar .mode-switch { margin: 0; }
 .bulk-help { margin: 0 20px 11px; font-size: .82rem; }
 .bulk-help p { color: var(--muted); margin-top: 2px; }
 .grid-scroll { overflow: auto; overscroll-behavior-x: none; max-height: 48dvh; margin-inline: 20px; border: 1px solid var(--line); border-radius: 8px; }
@@ -321,6 +325,12 @@ strong { font-weight: 660; }
 .reimbursement-choice label { display: flex; align-items: center; gap: 6px; min-height: 39px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--control); cursor: pointer; font-size: .85rem; }
 .reimbursement-choice label:has(:checked) { border-color: var(--accent); background: var(--soft); }
 .reimbursement-choice input { margin: 0; accent-color: var(--accent); }
+.reimbursement-choice .field-error { width: 100%; }
+.reimbursement-people { display: grid; justify-items: start; gap: 10px; }
+.reimbursement-people > p { margin: 0; font-size: .85rem; }
+.reimbursement-person { margin: 0; width: 100%; min-width: 0; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+.reimbursement-person legend { padding: 0 5px; font-size: .83rem; font-weight: 650; }
+.remove-reimbursement-person { justify-self: start; align-self: end; }
 .form-message { display: flex; align-items: center; gap: 8px; border-radius: 8px; padding: 8px 10px; margin-bottom: 13px; font-size: .85rem; overflow-wrap: anywhere; }
 .form-message.error { color: #852638; background: #fcecf0; }
 .form-message.success { color: #1b5e46; background: #e7f4ec; }
@@ -715,7 +725,7 @@ strong { font-weight: 660; }
   :is(.summary-row, .activity-list > .activity-row, .account-grid > .account-card):nth-child(2) { --row-delay: 210ms; }
   :is(.summary-row, .activity-list > .activity-row, .account-grid > .account-card):nth-child(3) { --row-delay: 255ms; }
   :is(.activity-list > .activity-row, .account-grid > .account-card):nth-child(n+4) { --row-delay: 290ms; }
-  .entry-mode, .toast, .receipt-list[open] > div, .chart-details[open] > dl { animation: lift-in 380ms var(--ease-out) both; }
+  .entry-mode, .toast, .receipt-list[open] > button, .chart-details[open] > dl { animation: lift-in 380ms var(--ease-out) both; }
   .chart-tip { transition: opacity 170ms ease, translate 230ms var(--ease-out), visibility 170ms; }
   .claim-card progress::-webkit-progress-value { transition: width 590ms var(--ease-out); }
   .chart-bars i { transition: height 620ms var(--ease-out), opacity 270ms ease; animation: grow-y 720ms var(--ease-out) backwards; animation-delay: calc(130ms + var(--step, 0) * 36ms); }

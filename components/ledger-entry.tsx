@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import { ChevronDown, CircleAlert, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, CircleAlert, HandCoins, Plus, Trash2 } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import {
   accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, validateFormEntry, workspaceForCurrency,
-  type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type ReimbursementMode, type Workspace,
+  maxReimbursementPeople, newId, type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type ReimbursementDraft, type ReimbursementMode, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
@@ -13,8 +13,11 @@ import { DatePicker, Picker } from "./ledger-picker";
 type Props = {
   workspace: Workspace; month: string; currency: Currency; original?: Entry; kind?: Kind; preset?: string; initialBulk?: boolean;
   onSave: (entries: Entry[]) => Promise<void>; onDelete?: (entry: Entry) => void; onClose: () => void;
+  onPayment?: () => void;
 };
 const maxRows = 250;
+const requiredColumns = new Set(["occurred_on", "kind", "description", "amount", "account_id"]);
+const batchValidationMessage = "Fill in Date, Type, Description, Amount, and Account on each used row. Review the highlighted cells.";
 function kindMatch(value: string) {
   const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
   return Object.hasOwn(kinds, normalized) ? normalized : value.trim();
@@ -32,24 +35,31 @@ function SpreadsheetChoice({ workspace, row, column, field, text, label, choose 
     return <DatePicker compact label={label} value={parseDate(text) ?? ""} onChange={choose}
       min={column === "due_on" ? parseDate(row.occurred_on) ?? undefined : undefined} required={column === "occurred_on" || field?.required}/>;
   }
-  let options: { value: string; label: string; swatch?: string }[] = [];
+  const knownType = Object.hasOwn(kinds, row.kind);
+  let options: { value: string; label: string; swatch?: string; disabled?: boolean }[] = [];
+  let selection = text;
   if (column === "kind") options = Object.values(kinds).map(label => ({ value: label, label }));
-  else if (column === "category_id") options = [
-    { value: "", label: "Uncategorized" },
-    ...workspace.categories.filter(category => !category.archived && category.applicable_kind === row.kind)
-      .map(category => ({ value: category.name, label: category.name, swatch: category.color })),
-  ];
-  else if (column === "account_id" || column === "destination_account_id") {
+  else if (column === "category_id") {
+    if (knownType && row.kind !== "expense" && row.kind !== "income") {
+      return <Picker compact label={label + " (income and expenses only)"} options={[]} disabled/>;
+    }
+    selection = row.category_id ?? "";
+    options = [{ value: "", label: "Uncategorized" },
+      ...workspace.categories.filter(category => !category.archived && (!knownType || category.applicable_kind === row.kind))
+        .map(category => ({ value: category.id, label: knownType ? category.name : category.name + " · " + kinds[category.applicable_kind], swatch: category.color })),
+    ];
+  } else if (column === "account_id" || column === "destination_account_id") {
     const destination = column === "destination_account_id";
-    if (destination && !needsDestination(row.kind)) return <Picker compact label={label + " (transfers and investment movements only)"} options={[]} disabled/>;
+    if (destination && knownType && !needsDestination(row.kind)) return <Picker compact label={label + " (transfers and investment movements only)"} options={[]} disabled/>;
     const source = workspace.accounts.find(account => account.id === row.account_id);
-    options = editableAccounts(workspace, row.kind, destination)
+    const accounts = knownType ? editableAccounts(workspace, row.kind, destination) : workspace.accounts.filter(account => !account.archived);
+    options = accounts
       .filter(account => !destination || account.id !== row.account_id && (!source || accountCurrency(account) === accountCurrency(source)))
       .map(account => ({ value: account.name, label: account.name + " · " + accountCurrency(account) }));
-    return <Picker compact label={options.length ? label : label + " (no eligible accounts)"} options={options} value={text} onValueChange={choose} disabled={!options.length}/>;
+    if (!options.length) options = [{ value: "__unavailable__", label: "No eligible accounts for this row", disabled: true }];
   } else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
   else if (field?.field_type === "checkbox") options = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
-  return options.length ? <Picker compact label={label} options={options} value={text} onValueChange={choose}/> : null;
+  return options.length ? <Picker compact label={label} options={options} value={selection} onValueChange={choose}/> : null;
 }
 function CustomInput({ definition, value, set, invalid, prior }: {
   definition: Definition; value: string | boolean | undefined; set: (value: string | boolean) => void; invalid?: boolean; prior?: boolean;
@@ -76,6 +86,10 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
   const unit = currencyLabel(entryCurrency);
   const activeCategories = workspace.categories.filter(category => category.applicable_kind === draft.kind && (!category.archived || original?.category_id === category.id));
   const set = <K extends keyof EntryDraft,>(key: K, value: EntryDraft[K]) => setDraft(current => ({ ...current, [key]: value }));
+  const updatePerson = (id: string, values: Partial<ReimbursementDraft>) => setDraft(current => ({
+    ...current, people: current.people?.map(person => person.id === id ? { ...person, ...values } : person),
+  }));
+  const addPerson = () => ({ id: newId(), amount: "", counterparty: "", due_on: null });
   const beforeTracking = historicalAccounts(workspace, draft);
   const availableAccounts = (destination: boolean) => editableAccounts(workspace, draft.kind, destination, destination ? original?.destination_account_id : original?.account_id)
     .filter(account => destination ? accountCurrency(account) === entryCurrency : (original || lockCurrency) ? accountCurrency(account) === entryCurrency : true);
@@ -104,12 +118,38 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
             options={[{ value: "", label: "Uncategorized" }, ...activeCategories.map(category => ({ value: category.id, label: category.name, swatch: category.color }))]}/>
         </Field>}
         {draft.kind === "expense" && <fieldset className="reimbursement-choice full"><legend>Reimbursement</legend>
-          {(["none", "partial", "full"] as const).map((value, index) => <label key={value}>
-            <input type="radio" value={value} checked={claim === value} onChange={() => setClaim(value)} name="reimbursement-mode"/>
-            <span>{["None", "Partial", "Full"][index]}</span>
+          {(["none", "partial", "full", "split"] as const).map((value, index) => <label key={value}>
+            <input type="radio" value={value} checked={claim === value} onChange={() => {
+              if (value === "split" && !draft.people) set("people", [
+                { id: draft.id, amount: claim === "full" ? draft.amount : draft.reimbursable, counterparty: draft.counterparty, due_on: draft.due_on },
+                addPerson(),
+              ]);
+              setClaim(value);
+            }} name="reimbursement-mode"/>
+            <span>{["None", "Partial", "Full", "Split by person"][index]}</span>
           </label>)}
+          {claim === "none" && errors.reimbursable && <small className="field-error full" role="alert">{errors.reimbursable}</small>}
         </fieldset>}
-        {draft.kind === "expense" && claim !== "none" && <>
+        {draft.kind === "expense" && claim === "split" && <div className="reimbursement-people full">
+          <p className="muted">Give each person their own amount and optional due date. Shares can cover part or all of this expense.</p>
+          {draft.people?.map((person, index) => <fieldset className="reimbursement-person form-grid" key={person.id}>
+            <legend>Person {index + 1}</legend>
+            <Field label="Owed by" error={errors[person.id + "-person"]}><input value={person.counterparty} maxLength={160}
+              aria-invalid={!!errors[person.id + "-person"]} onChange={event => updatePerson(person.id, { counterparty: event.target.value })}/></Field>
+            <Field label={`Share amount (${unit})`} error={errors[person.id + "-amount"]}><input value={person.amount} inputMode="decimal"
+              aria-invalid={!!errors[person.id + "-amount"]} onBlur={() => updatePerson(person.id, { amount: formatMoneyInput(person.amount, entryCurrency) })}
+              onChange={event => updatePerson(person.id, { amount: event.target.value })}/></Field>
+            <Field label="Due date (optional)" error={errors[person.id + "-date"]}><DatePicker label={"Due date for person " + (index + 1)} value={person.due_on ?? ""}
+              min={parseDate(draft.occurred_on) ?? undefined} invalid={!!errors[person.id + "-date"]} onChange={date => updatePerson(person.id, { due_on: date || null })}/></Field>
+            <button className="button danger quiet remove-reimbursement-person" type="button" aria-label={"Remove person " + (index + 1)}
+              disabled={(draft.people?.length ?? 0) <= 1 || workspace.reimbursement_receipts.some(receipt => receipt.expense_id === draft.id && (receipt.claim_id ?? draft.id) === person.id)}
+              onClick={() => set("people", draft.people?.filter(item => item.id !== person.id))}><Trash2 size={16}/> Remove</button>
+          </fieldset>)}
+          {errors.reimbursable && <small className="field-error" role="alert">{errors.reimbursable}</small>}
+          <button className="button secondary" type="button" disabled={(draft.people?.length ?? 0) >= maxReimbursementPeople}
+            onClick={() => set("people", [...(draft.people ?? []), addPerson()])}><Plus size={16}/> Add person</button>
+        </div>}
+        {draft.kind === "expense" && (claim === "partial" || claim === "full") && <>
           <Field label={`Reimbursable amount (${unit})`} error={errors.reimbursable} hint={claim === "full" ? "Matches the full expense amount." : undefined}>
             <input value={claim === "full" ? draft.amount : draft.reimbursable} readOnly={claim === "full"} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0"
               onBlur={() => { if (claim === "partial") set("reimbursable", formatMoneyInput(draft.reimbursable, entryCurrency)); }} onChange={event => set("reimbursable", event.target.value)}/>
@@ -128,7 +168,7 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
   </>;
 }
 
-export function EntryDialog({ workspace, month, currency, original, kind, preset, initialBulk, onSave, onDelete, onClose }: Props) {
+export function EntryDialog({ workspace, month, currency, original, kind, preset, initialBulk, onSave, onDelete, onClose, onPayment }: Props) {
   const make = () => {
     const scope = workspaceForCurrency(workspace, preset ? currencyForAccount(workspace, preset) : currency);
     return blankDraft(scope.accounts.length ? scope : workspace, month, kind, preset);
@@ -138,6 +178,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const [bulk, setBulk] = useState(!!initialBulk);
   const makeRow = () => ({ ...make(), occurred_on: "", kind: "", account_id: "", destination_account_id: null });
   const [rows, setRows] = useState<EntryDraft[]>(() => [makeRow()]);
+  const [editingAmount, setEditingAmount] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ row: string; anchor: number; columns: number[] } | null>(null);
   const [fill, setFill] = useState<{ start: number; end: number; columns: number[] } | null>(null);
   const dragFill = useRef<typeof fill>(null);
@@ -151,7 +192,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState("");
   const [working, setWorking] = useState(false);
-  const [claim, setClaim] = useState<ReimbursementMode>(() => original?.reimbursable_minor
+  const [claim, setClaim] = useState<ReimbursementMode>(() => original?.reimbursement_claims ? "split" : original?.reimbursable_minor
     ? original.reimbursable_minor === original.amount_minor ? "full" : "partial" : "none");
   const fields = activeFields(workspace);
   const earlyRows = rows.filter(row => (row.description.trim() || row.amount.trim()) && historicalAccounts(workspace, row).length).length;
@@ -185,13 +226,39 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     const field = fieldById.get(key);
     if (field) {
       const checkbox = field.field_type === "checkbox";
-      const next = checkbox ? /^(true|yes|1|checked|x)$/i.test(value.trim()) : value;
+      const next = checkbox && value.trim() ? /^(true|yes|1|checked|x)$/i.test(value.trim()) : value;
       return { ...row, custom: { ...row.custom, [key]: next } };
     }
-    if (key === "kind") return changeKind(workspace, row, kindMatch(value));
+    if (key === "kind") {
+      const kind = kindMatch(value);
+      const category = row.category_id;
+      const typedCategory = category && !workspace.categories.some(item => item.id === category);
+      const category_id = typedCategory ? match(category, workspace.categories.filter(item => item.applicable_kind === kind)) : category;
+      return { ...row, kind, category_id };
+    }
     if (key === "account_id" || key === "destination_account_id") return { ...row, [key]: match(value, workspace.accounts) };
-    if (key === "category_id") return { ...row, category_id: match(value, workspace.categories.filter(category => category.applicable_kind === row.kind)) || null };
+    if (key === "category_id") {
+      const typed = value.trim();
+      const exact = workspace.categories.find(category => category.id === typed);
+      const choices = workspace.categories.filter(category => !category.archived
+        && (!Object.hasOwn(kinds, row.kind) || category.applicable_kind === row.kind)
+        && category.name.toLowerCase() === typed.toLowerCase());
+      return { ...row, category_id: (exact?.id ?? (choices.length === 1 ? choices[0].id : typed)) || null };
+    }
     return { ...row, [key]: value };
+  }
+  const usedRow = (row: EntryDraft) => columns.some(([key]) => cellText(row, key).trim());
+  const validateRow = (row: EntryDraft) => validateEntry(workspace, row, { requireCustomFields: false });
+  function updateCell(row: EntryDraft, key: string, value: string) {
+    setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item));
+    if (!rowErrors[row.id]) return;
+    const edited = assign(row, key, value);
+    const errors = usedRow(edited) ? validateRow(edited).errors : undefined;
+    const next = { ...rowErrors };
+    if (errors) next[row.id] = errors;
+    else delete next[row.id];
+    setRowErrors(next);
+    if (!Object.keys(next).length && problem === batchValidationMessage) setProblem("");
   }
   function paste(event: ClipboardEvent<HTMLInputElement>, rowIndex: number, columnIndex: number) {
     const value = event.clipboardData.getData("text/plain");
@@ -306,13 +373,13 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   async function saveRows(event: FormEvent) {
     event.preventDefault();
     if (working) return;
-    const filled = rows.filter(row => row.description.trim() || row.amount.trim() || row.notes.trim() || row.reimbursable.trim() || row.counterparty.trim() || Object.values(row.custom).some(Boolean));
+    const filled = rows.filter(usedRow);
     if (!filled.length) { setProblem("Enter at least one row to save."); return; }
-    const parsed = filled.map(row => [row.id, validateEntry(workspace, row)] as const);
+    const parsed = filled.map(row => [row.id, validateRow(row)] as const);
     const invalid = Object.fromEntries(parsed.flatMap(([id, result]) => result.errors ? [[id, result.errors]] : []));
     setRowErrors(invalid);
     if (Object.keys(invalid).length) {
-      setProblem("Review the highlighted cells. No rows were saved.");
+      setProblem(batchValidationMessage);
       requestAnimationFrame(() => document.querySelector<HTMLElement>('dialog [aria-invalid="true"]')?.focus());
       return;
     }
@@ -322,10 +389,10 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     finally { setWorking(false); }
   }
   return <Modal title={original ? "Edit entry" : "Add entries"} subtitle={original ? "Update the details in your ledger." : "Choose how to enter your transactions."} onClose={onClose} wide={bulk} locked={working}>
-    {!original && <div className="mode-switch segmented" style={{ "--selection": bulk ? 1 : 0 } as CSSProperties} role="group" aria-label="Entry mode">
+    {!original && <div className="entry-toolbar"><div className="mode-switch segmented" style={{ "--selection": bulk ? 1 : 0 } as CSSProperties} role="group" aria-label="Entry mode">
       <button type="button" aria-pressed={!bulk} onClick={() => { setBulk(false); setProblem(""); }}>Form</button>
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
-    </div>}
+    </div>{onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Reimbursement payment</button>}</div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026.</p>
         <p>Add rows, then drag a cell’s corner to fill down. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from the row above.</p></div>
@@ -335,21 +402,26 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
             {columns.map(([key, label], col) => {
               const error = rowErrors[row.id]?.[key];
               const cellSelected = selected?.row === row.id && selected.columns.includes(col);
+              const monetary = key === "amount" || key === "reimbursable";
+              const amountId = row.id + "/" + key;
+              const text = cellText(row, key);
+              const rowAccount = monetary ? workspace.accounts.find(account => account.id === row.account_id) : undefined;
+              const display = monetary && editingAmount !== amountId ? formatMoneyInput(text, rowAccount ? accountCurrency(rowAccount) : currency) : text;
               return <td key={key} data-selected={cellSelected || undefined} data-fill={fill && fill.columns.includes(col) && index >= fill.start && index <= fill.end || undefined}>
               <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error}
-                aria-describedby={error ? "error-" + index + "-" + col : undefined} value={cellText(row, key)}
-                inputMode={key === "amount" || key === "reimbursable" ? "decimal" : undefined}
-                onChange={event => { const value = event.target.value; setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item)); }}
+                aria-describedby={error ? "error-" + index + "-" + col : undefined} value={display} required={requiredColumns.has(key)}
+                inputMode={monetary ? "decimal" : undefined} onFocus={monetary ? () => setEditingAmount(amountId) : undefined}
+                onChange={event => updateCell(row, key, event.target.value)}
                 onBlur={event => {
+                  if (monetary) { setEditingAmount(null); return; }
                   const value = event.target.value;
-                  const next = (key === "amount" || key === "reimbursable") && workspace.accounts.some(account => account.id === row.account_id) ? formatMoneyInput(value, currencyForAccount(workspace, row.account_id))
-                    : fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
-                  if (next !== value) setRows(current => current.map(item => item.id === row.id ? assign(item, key, next) : item));
+                  const next = fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
+                  if (next !== value) updateCell(row, key, next);
                 }}
                 onClick={event => selectCell(event, row.id, col)} onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
               <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={cellText(row, key)}
                 label={`Choose ${label} for row ${index + 1}`}
-                choose={value => setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item))}/>
+                choose={value => updateCell(row, key, value)}/>
               {index < rows.length - 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>
@@ -382,6 +454,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
         errors={errors} claim={claim} setClaim={setClaim}/>
       {problem && <p className="form-message error" role="alert"><CircleAlert size={17} />{problem}</p>}
       <div className="modal-footer">
+        {original?.kind === "income" && onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Link to reimbursement</button>}
         {original && onDelete && <button className="button danger quiet push" type="button" onClick={() => onDelete(original)} disabled={working}><Trash2 size={16} /> Delete</button>}
         <button type="button" className="button secondary" onClick={onClose} disabled={working}>Cancel</button>
         {!original && <button className="button secondary" type="submit" value="another" disabled={working}>Save and add another</button>}

@@ -13,6 +13,44 @@ const entry = (id, kind, amount_minor, options = {}) => ({
 });
 const setup = () => ({ ...emptyWorkspace, accounts: [account("bank", "bank", 100_000), account("wallet", "wallet"), account("fund", "investment")] });
 
+test("splitting a legacy claim keeps its payment and enforces each person's outstanding amount", () => {
+  const workspace = setup();
+  const expense = entry("lunch", "expense", 12000, { reimbursable_minor: 7000, counterparty: "Sam" });
+  workspace.transactions = [expense];
+  workspace.reimbursement_receipts = [{ id: "paid", expense_id: expense.id, account_id: "bank", received_on: "2025-02-04", amount_minor: 3000 }];
+  const draft = { ...draftFrom(expense), people: [
+    { id: expense.id, counterparty: "Sam", amount: "40.00", due_on: null },
+    { id: "second", counterparty: "Alex", amount: "30.00", due_on: "2025-02-08" },
+  ] };
+  const result = validateFormEntry(workspace, draft, "split");
+  assert.ok(result.entry);
+  workspace.transactions = [result.entry];
+  assert.deepEqual(claims(workspace).map(claim => [claim.counterparty, claim.remaining, claim.due_on]), [
+    ["Sam", 1000, null], ["Alex", 3000, "2025-02-08"],
+  ]);
+  assert.equal(monthly(workspace, month).spending, 5000);
+  assert.ok(validateFormEntry(workspace, { ...draft, people: [draft.people[1]] }, "split").errors.reimbursable);
+  const oversized = { ...draft, people: [draft.people[0], { ...draft.people[1], amount: "85.00" }] };
+  assert.ok(validateFormEntry(workspace, oversized, "split").errors.reimbursable);
+});
+
+test("linking and unlinking an existing deposit leaves cash intact and moves it between income and reimbursements", () => {
+  const workspace = setup();
+  const expense = entry("lunch", "expense", 12000, { reimbursable_minor: 7000, counterparty: "Sam" });
+  const income = entry("deposit", "income", 5000, { occurred_on: "2025-02-04" });
+  workspace.transactions = [expense, income];
+  workspace.reimbursement_receipts = [{
+    id: "payment", expense_id: expense.id, claim_id: expense.id, income_entry_id: income.id,
+    account_id: income.account_id, received_on: income.occurred_on, amount_minor: income.amount_minor,
+  }];
+  const linked = monthly(workspace, month);
+  assert.deepEqual([linked.cash, linked.income, linked.collected, linked.receivable], [93000, 0, 5000, 2000]);
+  assert.deepEqual(activity(workspace, month).map(row => row.id), ["payment", "lunch"]);
+  workspace.reimbursement_receipts = [];
+  const unlinked = monthly(workspace, month);
+  assert.deepEqual([unlinked.cash, unlinked.income, unlinked.collected, unlinked.receivable], [93000, 5000, 0, 7000]);
+});
+
 test("only browser-safe Supabase settings reach the client", () => {
   const url = "https://ledger.example";
   const legacyKey = role => `header.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.signature`;
@@ -222,6 +260,19 @@ test("the form distinguishes partial, full and non-reimbursable expenses", () =>
   assert.match(validateFormEntry(workspace, { ...draft, counterparty: "" }, "full").errors.counterparty, /owes/);
   const ordinary = validateFormEntry(workspace, draft, "none").entry;
   assert.deepEqual([ordinary.reimbursable_minor, ordinary.counterparty], [0, ""]);
+});
+
+test("spreadsheet validation requires the five core fields and allows blank custom fields", () => {
+  const workspace = setup();
+  workspace.field_definitions = [{ id: "ref", label: "Reference", field_type: "text", options: [], required: true, position: 0, archived: false }];
+  const draft = draftFrom(entry("batch", "expense", 35_000));
+  assert.ok(validateEntry(workspace, draft, { requireCustomFields: false }).entry);
+  assert.match(validateEntry(workspace, draft).errors.ref, /Complete/);
+  for (const key of ["occurred_on", "kind", "description", "amount", "account_id"]) {
+    const result = validateEntry(workspace, { ...draft, [key]: "" }, { requireCustomFields: false });
+    assert.ok(result.errors[key], key);
+  }
+  assert.ok(validateEntry(workspace, { ...draft, kind: "transfer" }, { requireCustomFields: false }).errors.destination_account_id);
 });
 
 test("the assistant extracts Indonesian named dates and edits a draft without guessing between accounts", () => {

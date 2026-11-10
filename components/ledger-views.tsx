@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, inPeriod, monthLabel, periodLabel, periodReport, shiftMonth, today, workspaceForBook,
-  type Activity, type Currency, type Kind, type Workspace,
+  type Activity, type Currency, type Kind, type Receipt, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, ActivityRow, Empty, palette } from "./ledger-ui";
 import { Picker } from "./ledger-picker";
@@ -198,17 +198,17 @@ export function Transactions({ workspace, period, currency, filters, setFilters,
 
 const claimStatuses = ["All", "Pending", "Partial", "Settled"];
 
-export function Reimbursements({ workspace, period, currency, onReceive, onOpen }: {
-  workspace: Workspace; period: string; currency: Currency; onReceive: (id: string) => void; onOpen: (id: string) => void;
+export function Reimbursements({ workspace, period, currency, onReceive, onOpen, onPayment }: {
+  workspace: Workspace; period: string; currency: Currency; onReceive: (id: string) => void; onOpen: (id: string) => void; onPayment: (receipt: Receipt) => void;
 }) {
   const format = (amount: number) => money(amount, currency);
   const [status, setStatus] = useState("All");
   const report = periodReport(workspace, period, currency);
-  const canReceive = new Set(claims(workspace).filter(claim => claim.remaining > 0).map(claim => claim.entry.id));
+  const canReceive = new Set(claims(workspace).filter(claim => claim.remaining > 0 && claim.entry.occurred_on <= today()).map(claim => claim.key));
   const matching = report.claims.filter(claim => (status === "All" || status === claim.status)
     && (inPeriod(claim.entry.occurred_on, period) || claim.receipts.some(receipt => inPeriod(receipt.received_on, period))))
     .toSorted((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0) || b.entry.occurred_on.localeCompare(a.entry.occurred_on));
-  const groups = Map.groupBy(matching, claim => claim.entry.counterparty);
+  const groups = Map.groupBy(matching, claim => claim.counterparty);
   return <>
     <div className="metric-grid">
       <Metric title="Outstanding at period end" value={format(report.receivable)} hint="Includes earlier unpaid claims" tone="amber" icon={HandCoins} period={period}/>
@@ -217,20 +217,22 @@ export function Reimbursements({ workspace, period, currency, onReceive, onOpen 
     </div>
     <div className="status-tabs segmented" style={{ "--selection": claimStatuses.indexOf(status) } as CSSProperties} role="group" aria-label="Filter reimbursements">{claimStatuses.map(label => <button key={label} aria-pressed={status === label} onClick={() => setStatus(label)}>{label}</button>)}</div>
     {!groups.size && <div className="panel"><Empty title="No matching claims" description="Mark an expense as reimbursable when you add it. Claims appear here if the expense or a payment falls within the selected period." icon={HandCoins}/></div>}
-    {Array.from(groups, ([person, personClaims]) => <section className="claim-group" key={person}><h2>{person}</h2><div className="claim-grid">{personClaims.map(claim => <article className="panel claim-card" key={claim.entry.id}>
+    {Array.from(groups, ([person, personClaims]) => <section className="claim-group" key={person}><h2>{person}</h2><div className="claim-grid">{personClaims.map(claim => <article className="panel claim-card" key={claim.key}>
       <div>
         <div className="claim-top"><span className={"pill " + (claim.status === "Settled" ? "green" : claim.status === "Partial" ? "blue" : "amber")}>{claim.status}</span>{claim.overdue && <span className="pill rose">Overdue</span>}</div>
         <button className="text-link claim-title" onClick={() => onOpen(claim.entry.id)}>{claim.entry.description}<ArrowRight size={15}/></button>
-        <p>{claim.entry.due_on ? "Due " + dayLabel(claim.entry.due_on) : "Recorded " + dayLabel(claim.entry.occurred_on)}</p>
+        <p>{claim.due_on ? "Due " + dayLabel(claim.due_on) : "Recorded " + dayLabel(claim.entry.occurred_on)}</p>
       </div>
       <div>
         <div className="claim-amount"><span>Outstanding</span><strong>{format(claim.remaining)}</strong></div>
-        <progress aria-label="Reimbursement progress" max={claim.entry.reimbursable_minor} value={claim.paid}/>
-        <div className="claim-caption"><span>{format(claim.paid)} received</span><span>{format(claim.entry.reimbursable_minor)} claimed</span></div>
+        <progress aria-label="Reimbursement progress" max={claim.amount_minor} value={claim.paid}/>
+        <div className="claim-caption"><span>{format(claim.paid)} received</span><span>{format(claim.amount_minor)} claimed</span></div>
       </div>
-      {(claim.receipts.length > 0 || (claim.remaining > 0 && canReceive.has(claim.entry.id))) && <div className="claim-actions">
-        {claim.receipts.length > 0 && <details className="receipt-list"><summary>{claim.receipts.length} {claim.receipts.length === 1 ? "payment" : "payments"}</summary>{claim.receipts.map(receipt => <div key={receipt.id}><span>{dayLabel(receipt.received_on)} · {accountName(workspace, receipt.account_id)}</span><strong>{format(receipt.amount_minor)}</strong></div>)}</details>}
-        {!!claim.remaining && canReceive.has(claim.entry.id) && <button className="button secondary" onClick={() => onReceive(claim.entry.id)}><Plus size={16}/> Receive payment</button>}
+      {(claim.receipts.length > 0 || (claim.remaining > 0 && canReceive.has(claim.key))) && <div className="claim-actions">
+        {claim.receipts.length > 0 && <details className="receipt-list"><summary>{claim.receipts.length} {claim.receipts.length === 1 ? "payment" : "payments"}</summary>{claim.receipts.map(receipt => <button type="button" key={receipt.id} onClick={() => onPayment(receipt)}>
+          <span>{dayLabel(receipt.received_on)} · {accountName(workspace, receipt.account_id)}</span><strong>{format(receipt.amount_minor)}</strong><ArrowRight size={14} aria-hidden="true"/>
+        </button>)}</details>}
+        {!!claim.remaining && canReceive.has(claim.key) && <button className="button secondary" onClick={() => onReceive(claim.key)}><Plus size={16}/> Receive payment</button>}
       </div>}
     </article>)}</div></section>)}
   </>;
