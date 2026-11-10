@@ -1,5 +1,5 @@
 import type { Activity, Currency, Workspace } from "./ledger.ts";
-import { accountName, activity, activityLabel, amountText, balances, cashLedger, claims, currencyLabel, dayLabel, formatMoneyInput, inPeriod, periodReport, periodLabel, periodStart, receiptClaimKey, today, workspaceForCurrency } from "./ledger.ts";
+import { accountName, activity, activityLabel, amountText, balances, cashLedger, currencyLabel, dayLabel, formatMoneyInput, inPeriod, periodReport, periodLabel, periodStart, receiptClaimKey, reimbursementReport, today, workspaceForCurrency } from "./ledger.ts";
 
 export type StatementKind = "overview" | "transactions" | "reimbursements" | "investments";
 const titles: Record<StatementKind, string> = {
@@ -20,9 +20,11 @@ async function loadFont(file: string) {
   return btoa(binary);
 }
 
-export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string, filtered?: Activity[]) {
+type StatementFilters = { activity?: Activity[]; people?: readonly string[] };
+
+export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string, filters?: StatementFilters) {
   const fonts = await Promise.all(fontFiles.map(loadFont));
-  const pdf = await createStatement(workspace, period, currency, demo, fonts, kind, sheet, filtered);
+  const pdf = await createStatement(workspace, period, currency, demo, fonts, kind, sheet, filters);
   const sheetSlug = sheet?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
   pdf.save(["finance-studio", kind, sheetSlug, period, currency.toLowerCase(), demo ? "demo" : ""].filter(Boolean).join("-") + ".pdf");
 }
@@ -30,7 +32,7 @@ export async function downloadStatement(workspace: Workspace, period: string, cu
 type Columns = Record<number, { cellWidth?: number; halign?: "right" }>;
 
 export async function createStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, fonts: readonly string[],
-  kind: StatementKind, sheet?: string, filtered?: Activity[]) {
+  kind: StatementKind, sheet?: string, { activity: filtered, people = [] }: StatementFilters = {}) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const scope = workspaceForCurrency(workspace, currency);
   const report = periodReport(scope, period, currency);
@@ -62,12 +64,18 @@ export async function createStatement(workspace: Workspace, period: string, curr
   heading(titles[kind], 24, 32);
   plain(periodLabel(period) + "   /   " + currency + (demo ? "   /   DEMO DATA" : ""), 10, left, 39);
   let cursor = 48;
-  if (sheet) {
-    const caption = "Finance sheet   " + safe(sheet).replace(/\n/g, " ");
+  const captions = sheet ? ["Finance sheet   " + sheet] : [];
+  if (kind === "reimbursements") captions.push("People   " + (people.length > 3 ? people.length + " selected people" : people.join(", ") || "All people"));
+  let captionY = 46;
+  for (const text of captions) {
+    const caption = safe(text).replace(/\n/g, " ");
     pdf.setFont(needsFallback(caption) ? fallbackFont : primaryFont, "normal"); pdf.setFontSize(9);
     const lines = pdf.splitTextToSize(caption, right - left) as string[];
-    lines.forEach((line, index) => plain(line, 9, left, 46 + index * 4));
-    cursor = 52 + lines.length * 4;
+    for (const line of lines) {
+      plain(line, 9, left, captionY);
+      captionY += 4;
+    }
+    cursor = captionY + 6;
   }
 
   function block(title: string, head: string[], body: string[][], columns: Columns = {}, summary: string[][] = []) {
@@ -160,10 +168,8 @@ export async function createStatement(workspace: Workspace, period: string, curr
   }
 
   if (kind === "overview" || kind === "reimbursements") {
-    const relevant = kind === "overview" ? report.claims : report.claims.filter(claim =>
-      inPeriod(claim.entry.occurred_on, period) || claim.receipts.some(row => inPeriod(row.received_on, period)));
-    const opening = claims(scope, periodStart(period)).reduce((sum, claim) => sum + claim.remaining, 0);
-    const newClaims = report.entries.reduce((sum, row) => sum + row.reimbursable_minor, 0);
+    const reimbursements = kind === "reimbursements" ? reimbursementReport(scope, period, people) : null;
+    const relevant = reimbursements?.claims ?? report.claims;
     block(kind === "overview" ? "Reimbursements at period end" : "Claims and balances", ["Date / due", "Expense / counterparty", "Status", "Claimed", "Received", "Outstanding"],
       relevant.length ? relevant.map(claim => [
         claim.entry.occurred_on + (claim.due_on ? "\nDue " + claim.due_on : ""),
@@ -171,19 +177,19 @@ export async function createStatement(workspace: Workspace, period: string, curr
         num(claim.amount_minor), num(claim.paid), num(claim.remaining),
       ]) : [["", "No claims in this view", "", "", "", ""]],
       { 0: { cellWidth: 31 }, 2: { cellWidth: 18 }, 3: { halign: "right", cellWidth: 24 }, 4: { halign: "right", cellWidth: 24 }, 5: { halign: "right", cellWidth: 26 } },
-      kind === "reimbursements" ? [
-        ["", "Opening outstanding", "", "", "", num(opening)],
-        ["", "New claims and payments in period", "", num(newClaims), num(report.collected), ""],
-        ["", "Closing outstanding", "", "", "", num(report.receivable)],
+      reimbursements ? [
+        ["", "Opening outstanding", "", "", "", num(reimbursements.opening)],
+        ["", "New claims and payments in period", "", num(reimbursements.newClaims), num(reimbursements.collected), ""],
+        ["", "Closing outstanding", "", "", "", num(reimbursements.outstanding)],
       ] : []);
-    if (kind === "reimbursements") {
+    if (reimbursements) {
       const descriptions = new Map(relevant.map(claim => [claim.key, claim.entry.description + "\n" + claim.counterparty]));
       block("Payments received in period", ["Date", "Claim / notes", "Deposit account", "Amount"],
-        report.receipts.length ? report.receipts.toSorted((a, b) => a.received_on.localeCompare(b.received_on)).map(row => [
+        reimbursements.receipts.length ? reimbursements.receipts.toSorted((a, b) => a.received_on.localeCompare(b.received_on)).map(row => [
           row.received_on, (descriptions.get(receiptClaimKey(row)) ?? "Reimbursement") + (row.notes ? "\n" + row.notes : ""),
           accountName(scope, row.account_id), num(row.amount_minor),
         ]) : [["", "No payments received", "", ""]],
-        { 0: { cellWidth: 24 }, 2: { cellWidth: 38 }, 3: amountColumn }, [["", "Total received", "", num(report.collected)]]);
+        { 0: { cellWidth: 24 }, 2: { cellWidth: 38 }, 3: amountColumn }, [["", "Total received", "", num(reimbursements.collected)]]);
     }
   }
 

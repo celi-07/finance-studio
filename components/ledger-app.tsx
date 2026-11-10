@@ -144,6 +144,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState<Filters>({ search: "", kind: "", account: "" });
+  const [personFilter, setPersonFilter] = useState<{ sheet: string; currency: Currency; people: string[] }>();
+  const selectedPeople = personFilter?.sheet === currentSheet.id && personFilter.currency === currency ? personFilter.people : [];
   function update(next: Workspace) { dataRef.current = next; setData(next); }
   function errorText(error: unknown) { return error instanceof Error ? error.message : "Something went wrong. Try again."; }
   useEffect(() => {
@@ -183,6 +185,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         setBookId(""); setAllSheets(true); setAllCurrencies(true); setPeriodMode("month");
         setPreferredCurrency(defaultCurrency);
         setFilters({ search: "", kind: "", account: "" });
+        setPersonFilter(undefined);
         update(emptyWorkspace);
         setPanel(null); setProblem(""); setNotice("");
         if (!nextOwner) { setRecovery(false); setLoading(false); return; }
@@ -291,8 +294,9 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     if (exporting || route === "settings" || route === "assistant") return;
     setExporting(true); setProblem("");
     try {
-      const filtered = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, period, filters, currency) : undefined;
-      await downloadStatement(reportData, period, currency, !configured, route, showingAllSheets ? "All sheets" : currentSheet.name, filtered);
+      const activity = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, period, filters, currency) : undefined;
+      const people = route === "reimbursements" ? selectedPeople : undefined;
+      await downloadStatement(reportData, period, currency, !configured, route, showingAllSheets ? "All sheets" : currentSheet.name, { activity, people });
       setNotice("Statement downloaded");
     } catch (error) { setProblem(errorText(error)); }
     finally { setExporting(false); }
@@ -365,6 +369,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
           </div>}
           {!loading && route === "transactions" && <Transactions workspace={reportData} period={period} currency={currency} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
           {!loading && route === "reimbursements" && <Reimbursements workspace={reportData} period={period} currency={currency} onReceive={id => setPanel({ type: "receive", id })}
+            selectedPeople={selectedPeople} onPeopleChange={people => setPersonFilter({ sheet: currentSheet.id, currency, people })}
             onPayment={receipt => setPanel({ type: "receipt", receipt })}
             onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
           {!loading && route === "investments" && <Investments workspace={reportData} period={period} currency={currency} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
@@ -421,7 +426,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         : "This removes the deposit from the account balance and increases the amount owed."}</p>
     </TaskForm>}
     {panel?.type === "reset" && <TaskForm title="Reset demo data?" subtitle="This replaces the entries and settings saved in this browser with the original fictional data." close={close} label="Reset demo"
-      submit={async () => { const fresh = createDemo(); writeDemo(fresh); update(fresh); setBookId(""); setAllSheets(true); setMonth(today().slice(0, 7)); setProblem(""); setNotice("Demo reset"); }}/>}
+      submit={async () => { const fresh = createDemo(); writeDemo(fresh); update(fresh); setBookId(""); setAllSheets(true); setMonth(today().slice(0, 7)); setPersonFilter(undefined); setProblem(""); setNotice("Demo reset"); }}/>}
     {notice && <div className="toast" role="status"><ShieldCheck size={18}/>{notice}</div>}
   </div>;
 }
