@@ -366,10 +366,11 @@ strong { font-weight: 660; }
 .receipt-detail { margin-inline: 20px; }
 .toast { position: fixed; z-index: 3; bottom: 17px; right: 18px; display: flex; align-items: center; gap: 7px; color: #fff; background: #202c42; box-shadow: 0 5px 20px #13271b40; border-radius: 10px; padding: 11px 15px; max-width: min(460px, calc(100% - 35px)); font-size: .86rem; }
 .auth-screen { display: grid; min-height: 100dvh; place-items: center; padding: 20px; }
-.auth-panel { width: min(450px, 100%); padding: 25px; }
+.auth-panel { --auth-button-height: 40px; width: min(450px, 100%); padding: 25px; }
 .auth-panel h1 { margin-top: 24px; font-size: 2rem; }
 .auth-panel > p { color: var(--muted); margin: 8px 0 12px; }
 .auth-panel form { display: grid; gap: 12px; margin: 16px 0 8px; }
+.auth-panel form > .button.primary { min-height: var(--auth-button-height); }
 .auth-top { display: flex; align-items: center; gap: 12px; }
 .auth-links { display: grid; gap: 5px; margin-top: 8px; justify-items: start; }
 .auth-links > :first-child { justify-self: center; }
@@ -378,6 +379,8 @@ strong { font-weight: 660; }
 .apple-provider { display: block; background: transparent; padding: 0; border: 0; border-radius: 8px; }
 .apple-provider img { display: block; height: 44px; max-width: 100%; object-fit: contain; }
 .google-sign-in { width: 100%; min-width: 0; }
+.google-sign-in-button:not([hidden]) { display: flow-root; block-size: var(--auth-button-height); overflow: clip; border-radius: 12px; color-scheme: light; }
+.google-sign-in-button:has(iframe:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
 .google-sign-in-button[inert] { opacity: .5; }
 .google-sign-in .form-message { color: var(--rose-ink); }
 .provider-sign-in p { font-size: .86rem; color: var(--muted); }

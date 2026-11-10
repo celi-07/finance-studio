@@ -12,7 +12,7 @@ type GoogleIdentity = {
     nonce: string;
     callback: (response: { credential: string }) => void;
   }): void;
-  renderButton(host: HTMLElement, options: { theme: "outline"; size: "large"; width: number }): void;
+  renderButton(host: HTMLElement, options: { theme: "outline"; size: "large"; text: "signin_with"; locale: "en"; width: number }): void;
 };
 
 export function GoogleSignIn({ cloud, disabled, onBusyChange }: {
@@ -68,7 +68,7 @@ export function GoogleSignIn({ cloud, disabled, onBusyChange }: {
         if (!width || width === buttonWidth) return;
         buttonWidth = width;
         buttonHost.replaceChildren();
-        google.renderButton(buttonHost, { theme: "outline", size: "large", width });
+        google.renderButton(buttonHost, { theme: "outline", size: "large", text: "signin_with", locale: "en", width });
         setRendered(true);
       }
       render();
@@ -84,7 +84,7 @@ export function GoogleSignIn({ cloud, disabled, onBusyChange }: {
 
   if (!cloud.googleClientId) return <p>Google sign-in is currently unavailable.</p>;
   return <div className="google-sign-in">
-    <Script src="https://accounts.google.com/gsi/client" onReady={() => setLoaded(true)}
+    <Script src="https://accounts.google.com/gsi/client?hl=en" onReady={() => setLoaded(true)}
       onError={() => setProblem("Couldn’t load Google sign-in. Refresh the page to try again.")}/>
     <div ref={hostRef} className="google-sign-in-button" hidden={Boolean(problem)} inert={disabled || pending}/>
     {!rendered && !problem && <p role="status">Loading Google sign-in…</p>}
