@@ -375,11 +375,11 @@ strong { font-weight: 660; }
 .auth-links > :first-child { justify-self: center; }
 .provider-sign-in { display: grid; justify-items: start; gap: 9px; margin-block: 16px; }
 .auth-panel form .provider-sign-in { margin-block: 0; }
-.provider-sign-in button:not(.google-provider) { display: block; background: transparent; padding: 0; border: 0; border-radius: 8px; }
-.provider-sign-in img { display: block; height: 44px; max-width: 100%; object-fit: contain; }
-.google-provider { width: 100%; padding: 0; background: #fff; border-color: #dadce0; }
-.google-provider img { height: 38px; clip-path: inset(3px); }
-.google-provider:hover:not(:disabled) { border-color: var(--accent); }
+.apple-provider { display: block; background: transparent; padding: 0; border: 0; border-radius: 8px; }
+.apple-provider img { display: block; height: 44px; max-width: 100%; object-fit: contain; }
+.google-sign-in { width: 100%; min-width: 0; }
+.google-sign-in-button[inert] { opacity: .5; }
+.google-sign-in .form-message { color: var(--rose-ink); }
 .provider-sign-in p { font-size: .86rem; color: var(--muted); }
 
 .welcome { max-width: 1240px; margin-inline: auto; padding: 0 clamp(18px, 5vw, 60px); }
