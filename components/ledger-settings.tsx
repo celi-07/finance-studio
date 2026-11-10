@@ -4,7 +4,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
 import {
   accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, isCurrency, money, newId, parseDate, parseMoney, today,
-  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type Valuation, type Workspace,
+  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, Field, Modal, MoneyInput, palette } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
@@ -16,14 +16,14 @@ const kindLabels = { bank: "Bank account", wallet: "E-wallet", cash: "Cash on ha
 const currencyOptions = Object.entries(currencies).map(([value, label]) => ({ value, label: value + " · " + label }));
 const typeLabels: Record<FieldType, string> = { text: "Text", number: "Number", date: "Date", select: "Select", checkbox: "Checkbox" };
 
-export function TaskForm({ title, subtitle, close, submit, label, children }: {
-  title: string; subtitle?: string; close: () => void; submit: (data: FormData) => Promise<void>; label: string; children?: ReactNode;
+export function TaskForm({ title, subtitle, close, submit, label, children, disabled }: {
+  title: string; subtitle?: string; close: () => void; submit: (data: FormData) => Promise<void>; label: string; children?: ReactNode; disabled?: boolean;
 }) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (working) return;
+    if (working || disabled) return;
     const data = new FormData(event.currentTarget);
     setError(""); setWorking(true);
     try { await submit(data); close(); }
@@ -33,36 +33,80 @@ export function TaskForm({ title, subtitle, close, submit, label, children }: {
   return <Modal title={title} subtitle={subtitle} onClose={close} locked={working}>
     <form onSubmit={save}><div className="form-grid">{children}</div>
       {error && <p className="form-message error" role="alert">{error}</p>}
-      <div className="modal-footer"><button className="button secondary" type="button" onClick={close} disabled={working}>Cancel</button><button className="button primary" disabled={working}>{working ? "Saving…" : label}</button></div>
+      <div className="modal-footer"><button className="button secondary" type="button" onClick={close} disabled={working}>Cancel</button><button className="button primary" disabled={working || disabled}>{working ? "Saving…" : label}</button></div>
     </form>
   </Modal>;
 }
 const value = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
 
-export function ReceiptDialog({ workspace, expenseId, close, save }: { workspace: Workspace; expenseId: string; close: () => void; save: Save }) {
+export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }: {
+  workspace: Workspace; initialClaim?: string; incomeId?: string; close: () => void; save: Save;
+}) {
   const [id] = useState(newId);
-  const claim = claims(workspace).find(item => item.entry.id === expenseId);
-  if (!claim) return null;
-  const currency = currencyForAccount(workspace, claim.entry.account_id);
-  const accounts = workspace.accounts.filter(account => account.kind !== "investment" && !account.archived && accountCurrency(account) === currency);
+  const [selection, setSelection] = useState(initialClaim ?? "");
+  const [mode, setMode] = useState(incomeId ? "link" : "record");
+  const [incomeSelection, setIncomeSelection] = useState(incomeId ?? "");
+  const linked = new Set(workspace.reimbursement_receipts.map(receipt => receipt.income_entry_id));
+  const openClaims = claims(workspace).filter(item => item.remaining > 0 && item.entry.occurred_on <= today());
+  const claim = openClaims.find(item => item.key === selection);
+  const currency = currencyForAccount(workspace, claim?.entry.account_id ?? "");
+  const sheet = workspace.accounts.find(account => account.id === claim?.entry.account_id)?.ledger_id ?? null;
+  const accounts = workspace.accounts.filter(account => account.kind !== "investment" && !account.archived &&
+    accountCurrency(account) === currency && (account.ledger_id ?? null) === sheet);
+  const eligibleIncome = claim ? workspace.transactions.filter(entry => entry.kind === "income" && !linked.has(entry.id) &&
+    (!incomeId || entry.id === incomeId) && entry.amount_minor <= claim.remaining &&
+    entry.occurred_on >= claim.entry.occurred_on && entry.occurred_on <= today() &&
+    accounts.some(account => account.id === entry.account_id && entry.occurred_on >= account.opening_date))
+    .toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on)) : [];
+  const income = eligibleIncome.find(entry => entry.id === incomeSelection);
+  const linking = mode === "link";
   async function submit(data: FormData) {
-    if (!claim) return;
+    if (!claim) throw Error("Choose an outstanding reimbursement.");
+    const receipt = { id, expense_id: claim.entry.id, claim_id: claim.id };
+    if (linking) {
+      if (!income) throw Error("Choose an eligible income entry.");
+      await save("reimbursement_receipts", [{ ...receipt, income_entry_id: income.id, account_id: income.account_id,
+        received_on: income.occurred_on, amount_minor: income.amount_minor, notes: income.notes }]);
+      return;
+    }
     const amount = parseMoney(value(data, "amount"), currency);
     const date = parseDate(value(data, "date"));
     const account = accounts.find(item => item.id === value(data, "account"));
     if (!amount || amount > claim.remaining) throw Error("Enter a positive amount up to " + money(claim.remaining, currency) + ".");
     if (!date || date < claim.entry.occurred_on || date > today()) throw Error("Choose a payment date from the expense date through today.");
     if (!account || date < account.opening_date) throw Error("Choose a cash account open on the payment date.");
-    const receipt: Receipt = { id, expense_id: expenseId, account_id: account.id, received_on: date, amount_minor: amount, notes: value(data, "notes") };
-    await save("reimbursement_receipts", [receipt]);
+    await save("reimbursement_receipts", [{ ...receipt, account_id: account.id, received_on: date, amount_minor: amount, notes: value(data, "notes") }]);
   }
-  return <TaskForm title="Receive payment" subtitle={claim.entry.description + " · " + claim.entry.counterparty} close={close} submit={submit} label="Record payment">
-    <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining, currency)}</strong></div></div>
-    <Field label={`Amount received (${currencyLabel(currency)})`}><MoneyInput currency={currency} name="amount" placeholder={amountText(claim.remaining, currency)} required /></Field>
-    <Field label="Date received"><DatePicker label="Date received" name="date" defaultValue={today()} min={claim.entry.occurred_on} max={today()} required/></Field>
-    <Field label="Deposit account" full><Picker label="Deposit account" name="account" defaultValue={accounts.some(account => account.id === claim.entry.account_id) ? claim.entry.account_id : ""}
-      options={[{ value: "", label: "Choose account" }, ...accounts.map(account => ({ value: account.id, label: account.name }))]}/></Field>
-    <Field label="Notes (optional)" full><textarea name="notes" rows={2}/></Field>
+  return <TaskForm title={incomeId ? "Link to reimbursement" : "Reimbursement payment"}
+    subtitle="Apply a payment to the person who owes you." close={close} submit={submit} label={linking ? "Link payment" : "Record payment"}
+    disabled={!claim || (linking && !income) || (!linking && !accounts.length)}>
+    {!openClaims.length && <p className="full muted">There are no outstanding reimbursements on this sheet.</p>}
+    {!!openClaims.length && <Field label="Reimbursement" full><Picker label="Reimbursement" value={selection}
+      onValueChange={key => { setSelection(key); setIncomeSelection(incomeId ?? ""); }}
+      options={[{ value: "", label: "Choose reimbursement" }, ...openClaims.map(item => ({
+        value: item.key, label: item.counterparty + " · " + item.entry.description + " · " + money(item.remaining, currencyForAccount(workspace, item.entry.account_id)),
+      }))]}/></Field>}
+    {claim && <>
+      <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining, currency)}</strong></div></div>
+      {!incomeId && <fieldset className="reimbursement-choice full"><legend>Payment source</legend>
+        <label><input type="radio" checked={!linking} onChange={() => setMode("record")} name="payment-source"/>Record a payment</label>
+        <label><input type="radio" checked={linking} onChange={() => setMode("link")} name="payment-source"/>Link existing income</label>
+      </fieldset>}
+      {linking ? <>
+        {!!eligibleIncome.length && <Field label="Income entry" full hint="The original deposit will be shown as a reimbursement payment.">
+          <Picker label="Income entry" value={incomeSelection} onValueChange={setIncomeSelection}
+            options={[{ value: "", label: "Choose income entry" }, ...eligibleIncome.map(entry => ({
+              value: entry.id, label: entry.description + " · " + dayLabel(entry.occurred_on) + " · " + money(entry.amount_minor, currency),
+            }))]}/></Field>}
+        {!eligibleIncome.length && <p className="full muted">{incomeId ? "This income entry does not match this claim’s currency, dates, or outstanding amount." : "No unlinked income matches this claim’s currency, dates, and outstanding amount."}</p>}
+      </> : <div className="form-grid full" key={claim.key}>
+        <Field label={`Amount received (${currencyLabel(currency)})`}><MoneyInput currency={currency} name="amount" placeholder={amountText(claim.remaining, currency)} required /></Field>
+        <Field label="Date received"><DatePicker label="Date received" name="date" defaultValue={today()} min={claim.entry.occurred_on} max={today()} required/></Field>
+        <Field label="Deposit account" full><Picker label="Deposit account" name="account" defaultValue={accounts.some(account => account.id === claim.entry.account_id) ? claim.entry.account_id : ""}
+          options={[{ value: "", label: "Choose account" }, ...accounts.map(account => ({ value: account.id, label: account.name }))]}/></Field>
+        <Field label="Notes (optional)" full><textarea name="notes" rows={2}/></Field>
+      </div>}
+    </>}
   </TaskForm>;
 }
 
@@ -167,7 +211,7 @@ const guideSteps = [
   ["Set up your sheets", "Start in Personal or use Add sheet to create a separate place for a business or investments. Use the sheet picker to switch before making changes."],
   ["Add your financial accounts", "Open Settings → Financial accounts. Add a bank account, wallet, cash balance or investment account. Choose its currency, then enter the balance and date from which you want to start tracking."],
   ["Record income and spending", "Choose Add entry. Select an account and enter the amount in its currency. For a batch, switch to Spreadsheet and paste rows with the account names from the current sheet."],
-  ["Track reimbursements", "Mark an expense as reimbursable and enter the claim amount and who owes it. Open Reimbursements to record payments into an account on the same sheet and in the same currency."],
+  ["Track reimbursements", "Mark an expense as reimbursable or choose Split by person to add several claims. Open Reimbursements or Add entries to record a payment or link an existing income entry. Open a payment to delete it or unlink the original income."],
   ["Track investments", "Add an investment account, then record contributions or withdrawals between accounts in the same sheet and currency. In Investments, use Update valuation to record its current total value."],
   ["Review and export", "Choose Month, Year, or All time. Overview can show one sheet or All sheets, with each currency totaled separately. Select one currency to download a PDF for the selected period."],
   ["Draft with the Assistant", "Open Assistant and describe an income or expense. Review the editable preview or ask for changes in chat, then choose Submit transaction."],

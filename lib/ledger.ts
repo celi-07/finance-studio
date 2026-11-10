@@ -31,12 +31,15 @@ export type SavingsGoal = BookRecord & { id: string; name: string; currency: Cur
 export type Account = BookRecord & { id: string; name: string; kind: AccountKind; currency?: Currency; opening_minor: number; opening_date: string; archived: boolean };
 export type Category = BookRecord & { id: string; name: string; applicable_kind: "income" | "expense"; color: string; archived: boolean };
 export type Field = BookRecord & { id: string; label: string; field_type: FieldType; options: string[]; required: boolean; position: number; archived: boolean };
+export type ReimbursementShare = { id: string; amount_minor: number; counterparty: string; due_on: string | null };
+export type ReimbursementDraft = Omit<ReimbursementShare, "amount_minor"> & { amount: string };
 export type Entry = {
   id: string; occurred_on: string; kind: Kind; description: string; amount_minor: number; account_id: string;
   destination_account_id: string | null; category_id: string | null; notes: string;
   custom_values: Record<string, FieldValue>; reimbursable_minor: number; counterparty: string; due_on: string | null;
+  reimbursement_claims?: ReimbursementShare[] | null;
 };
-export type Receipt = { id: string; expense_id: string; account_id: string; received_on: string; amount_minor: number; notes: string };
+export type Receipt = { id: string; expense_id: string; claim_id?: string | null; income_entry_id?: string | null; account_id: string; received_on: string; amount_minor: number; notes: string };
 export type Valuation = { id: string; investment_account_id: string; valued_on: string; value_minor: number };
 export type Workspace = {
   finance_books: FinanceBook[];
@@ -45,8 +48,9 @@ export type Workspace = {
   transactions: Entry[]; reimbursement_receipts: Receipt[]; investment_valuations: Valuation[];
 };
 export type Collection = keyof Workspace;
-export type EntryDraft = Omit<Entry, "amount_minor" | "reimbursable_minor" | "custom_values" | "kind"> & {
+export type EntryDraft = Omit<Entry, "amount_minor" | "reimbursable_minor" | "reimbursement_claims" | "custom_values" | "kind"> & {
   amount: string; reimbursable: string; custom: Record<string, string | boolean>; kind: string;
+  people?: ReimbursementDraft[];
 };
 
 export const emptyWorkspace: Workspace = {
@@ -166,16 +170,20 @@ export function blankDraft(workspace: Workspace, month: string, kind: Kind = "ex
   };
 }
 export function draftFrom(entry: Entry, currency: Currency = defaultCurrency): EntryDraft {
-  const { amount_minor, reimbursable_minor, custom_values, ...rest } = entry;
+  const { amount_minor, reimbursable_minor, reimbursement_claims, custom_values, ...rest } = entry;
   return {
     ...rest, amount: amountText(amount_minor, currency), reimbursable: amountText(reimbursable_minor, currency),
+    people: reimbursement_claims?.map(({ amount_minor, ...person }) => ({ ...person, amount: amountText(amount_minor, currency) })),
     custom: Object.fromEntries(Object.entries(custom_values).map(([key, value]) => [key, typeof value === "number" ? String(value) : value])),
   };
 }
 type Validation = { entry: Entry; errors?: undefined } | { entry?: undefined; errors: Record<string, string> };
-export type ReimbursementMode = "none" | "partial" | "full";
+export type ReimbursementMode = "none" | "partial" | "full" | "split";
+export const maxReimbursementPeople = 30;
 
 export function validateFormEntry(workspace: Workspace, draft: EntryDraft, mode: ReimbursementMode): Validation {
+  if (draft.kind === "expense" && mode === "split") return validateEntry(workspace, { ...draft, people: draft.people ?? [] });
+  draft = { ...draft, people: undefined };
   if (draft.kind !== "expense" || mode === "none") {
     return validateEntry(workspace, { ...draft, reimbursable: "", counterparty: "", due_on: null });
   }
@@ -199,11 +207,21 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft, { require
   const currency = accountCurrency(sourceAccount);
   const amount = parseMoney(draft.amount, currency);
   const description = draft.description.trim();
-  const reimbursable = kind === "expense" && draft.reimbursable.trim() ? parseMoney(draft.reimbursable, currency) : 0;
+  const shares = kind === "expense" ? draft.people?.map(person => {
+    const amount = parseMoney(person.amount, currency);
+    const counterparty = person.counterparty.trim();
+    const due = person.due_on ? parseDate(person.due_on) : null;
+    if (!amount) errors[person.id + "-amount"] = "Enter a positive amount.";
+    if (!counterparty || counterparty.length > 160) errors[person.id + "-person"] = "Enter a name up to 160 characters.";
+    if (person.due_on && (!due || (date && due < date))) errors[person.id + "-date"] = "Choose a due date on or after the expense date.";
+    return { id: person.id, amount_minor: amount ?? 0, counterparty, due_on: due };
+  }) : undefined;
+  const reimbursable = shares ? total(shares, share => share.amount_minor)
+    : kind === "expense" && draft.reimbursable.trim() ? parseMoney(draft.reimbursable, currency) : 0;
   const destination = needsDestination(draft.kind) ? draft.destination_account_id : null;
   const dueText = draft.due_on?.trim() ?? "";
-  const due = reimbursable && dueText ? parseDate(dueText) : null;
-  const counterparty = reimbursable ? draft.counterparty.trim() : "";
+  const due = shares ? (shares.length === 1 ? shares[0].due_on : null) : reimbursable && dueText ? parseDate(dueText) : null;
+  const counterparty = shares ? (shares.length === 1 ? shares[0].counterparty : "Multiple people") : reimbursable ? draft.counterparty.trim() : "";
   const category = kind === "income" || kind === "expense" ? draft.category_id : null;
   if (!kind) errors.kind = "Choose a valid type.";
   if (!date) errors.occurred_on = "Enter a valid date (YYYY-MM-DD or DD/MM/YYYY).";
@@ -221,9 +239,17 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft, { require
   if (category && !workspace.categories.some(item => item.id === category && item.applicable_kind === kind && (item.ledger_id ?? null) === (sourceAccount?.ledger_id ?? null) && (!item.archived || existing?.category_id === item.id))) errors.category_id = "Choose a category that matches this type and sheet.";
   if (reimbursable === null || reimbursable > (amount ?? 0)) errors.reimbursable = "The claim must be between zero and the expense amount.";
   if (reimbursable && !counterparty) errors.counterparty = "Enter who owes this reimbursement.";
-  if (reimbursable && dueText && (!due || (date && due < date))) errors.due_on = "Choose a due date on or after the expense date.";
+  if (!shares && reimbursable && dueText && (!due || (date && due < date))) errors.due_on = "Choose a due date on or after the expense date.";
+  if (shares && (!shares.length || shares.length > maxReimbursementPeople || new Set(shares.map(share => share.id)).size !== shares.length)) {
+    errors.reimbursable = "Add between 1 and " + maxReimbursementPeople + " reimbursement shares.";
+  }
   const receipts = workspace.reimbursement_receipts.filter(receipt => receipt.expense_id === draft.id);
-  if ((reimbursable ?? 0) < total(receipts, row => row.amount_minor)) errors.reimbursable = "The claim cannot be less than the payments already received.";
+  const limits = new Map(shares?.map(share => [share.id, share.amount_minor]) ?? [[draft.id, reimbursable ?? 0]]);
+  for (const [id, payments] of Map.groupBy(receipts, receipt => receipt.claim_id ?? draft.id)) {
+    if ((limits.get(id) ?? 0) < total(payments, row => row.amount_minor)) {
+      errors.reimbursable = "Keep each paid share and its received amount, or remove its payments first.";
+    }
+  }
   if (date && receipts.some(receipt => receipt.received_on < date)) errors.occurred_on = "The expense cannot move after a linked payment.";
   const customValues = { ...existing?.custom_values };
   for (const field of activeFields(workspace)) {
@@ -256,28 +282,39 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft, { require
   return { entry: {
     id: draft.id, kind, occurred_on: date, description, amount_minor: amount, account_id: draft.account_id,
     destination_account_id: destination, category_id: category, notes: draft.notes.trim(), custom_values: customValues,
-    reimbursable_minor: reimbursable, counterparty, due_on: due,
+    reimbursable_minor: reimbursable, counterparty, due_on: due, reimbursement_claims: shares ?? null,
   }};
 }
 
 const total = <T,>(rows: T[], value: (row: T) => number) => rows.reduce((sum, row) => sum + value(row), 0);
+export function entryClaims(entry: Entry): ReimbursementShare[] {
+  if (!entry.reimbursable_minor) return [];
+  return entry.reimbursement_claims ?? [{ id: entry.id, amount_minor: entry.reimbursable_minor, counterparty: entry.counterparty, due_on: entry.due_on }];
+}
+export const claimKey = (expenseId: string, claimId: string) => expenseId + ":" + claimId;
+export const receiptClaimKey = (receipt: Receipt) => claimKey(receipt.expense_id, receipt.claim_id ?? receipt.expense_id);
+const linkedIncomeIds = (workspace: Workspace) => new Set(workspace.reimbursement_receipts.map(receipt => receipt.income_entry_id));
+
 export function claims(workspace: Workspace, before = "9999-99-99", asOf = today()) {
   const receipts = new Map<string, Receipt[]>();
   for (const receipt of workspace.reimbursement_receipts) {
     if (receipt.received_on >= before) continue;
-    const list = receipts.get(receipt.expense_id) ?? [];
+    const key = receiptClaimKey(receipt);
+    const list = receipts.get(key) ?? [];
     list.push(receipt);
-    receipts.set(receipt.expense_id, list);
+    receipts.set(key, list);
   }
-  return workspace.transactions.filter(entry => entry.kind === "expense" && entry.reimbursable_minor && entry.occurred_on < before).map(entry => {
-    const payments = (receipts.get(entry.id) ?? []).toSorted((a, b) => b.received_on.localeCompare(a.received_on));
+  return workspace.transactions.filter(entry => entry.kind === "expense" && entry.occurred_on < before).flatMap(entry => entryClaims(entry).map(share => {
+    const key = claimKey(entry.id, share.id);
+    const payments = (receipts.get(key) ?? []).toSorted((a, b) => b.received_on.localeCompare(a.received_on));
     const paid = total(payments, receipt => receipt.amount_minor);
-    const remaining = entry.reimbursable_minor - paid;
+    const remaining = share.amount_minor - paid;
     const status = remaining === 0 ? "Settled" : paid > 0 ? "Partial" : "Pending";
-    return { entry, receipts: payments, paid, remaining, status, overdue: !!(remaining && entry.due_on && entry.due_on < asOf) };
-  });
+    return { ...share, key, entry, receipts: payments, paid, remaining, status, overdue: !!(remaining && share.due_on && share.due_on < asOf) };
+  }));
 }
 export function balances(workspace: Workspace, before: string) {
+  const linked = linkedIncomeIds(workspace);
   const openings = new Map(workspace.accounts.map(account => [account.id, account.opening_date]));
   const changes = new Map<string, number>();
   const sinceValuation = new Map<string, number>();
@@ -296,7 +333,7 @@ export function balances(workspace: Workspace, before: string) {
     if (valuation && date > valuation.valued_on) sinceValuation.set(id, (sinceValuation.get(id) ?? 0) + delta);
   };
   for (const entry of workspace.transactions) {
-    if (entry.occurred_on >= before) continue;
+    if (entry.occurred_on >= before || linked.has(entry.id)) continue;
     add(entry.account_id, entry.occurred_on, entry.kind === "income" ? entry.amount_minor : -entry.amount_minor);
     if (entry.destination_account_id) add(entry.destination_account_id, entry.occurred_on, entry.amount_minor);
     if (entry.kind === "investment_withdrawal") adjust(entry.account_id, entry.occurred_on, -entry.amount_minor);
@@ -313,7 +350,8 @@ export function periodReport(data: Workspace, period: string, currency: Currency
   const workspace = workspaceForCurrency(data, currency);
   const before = period === "all" ? "9999-99-99" : period.length === 4 ? (Number(period) + 1) + "-01-01" : shiftMonth(period, 1) + "-01";
   const accounts = balances(workspace, before);
-  const entries = workspace.transactions.filter(entry => inPeriod(entry.occurred_on, period)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));
+  const linked = linkedIncomeIds(workspace);
+  const entries = workspace.transactions.filter(entry => !linked.has(entry.id) && inPeriod(entry.occurred_on, period)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));
   const receipts = workspace.reimbursement_receipts.filter(row => inPeriod(row.received_on, period));
   const activeClaims = claims(workspace, before, before < today() ? before : today());
   const expenses = entries.filter(entry => entry.kind === "expense");
@@ -346,10 +384,15 @@ export function activity(workspace: Workspace, period: string, currency: Currenc
       amount: entry.kind === "income" || entry.kind === "investment_withdrawal" ? entry.amount_minor : entry.kind === "transfer" ? entry.amount_minor : -entry.amount_minor,
       accountId: entry.account_id, category: entry.category_id ? categoryName(workspace, entry.category_id) : kinds[entry.kind], entry,
     })),
-    ...report.receipts.map(receipt => ({
-      id: receipt.id, date: receipt.received_on, title: workspace.transactions.find(entry => entry.id === receipt.expense_id)?.description ?? "Reimbursement",
-      kind: "reimbursement_receipt" as const, amount: receipt.amount_minor, accountId: receipt.account_id, category: "Reimbursement received", receipt,
-    })),
+    ...report.receipts.map(receipt => {
+      const expense = workspace.transactions.find(entry => entry.id === receipt.expense_id);
+      const person = expense && entryClaims(expense).find(share => share.id === (receipt.claim_id ?? expense.id));
+      return {
+        id: receipt.id, date: receipt.received_on, title: expense?.description ?? "Reimbursement",
+        kind: "reimbursement_receipt" as const, amount: receipt.amount_minor, accountId: receipt.account_id,
+        category: person ? "Reimbursement received · " + person.counterparty : "Reimbursement received", receipt,
+      };
+    }),
   ].sort((a, b) => b.date.localeCompare(a.date));
 }
 export const activityLabel = (row: Activity) => row.kind === "reimbursement_receipt" ? "Reimbursement received" : kinds[row.kind];

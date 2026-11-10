@@ -1,5 +1,5 @@
 import type { Activity, Currency, Workspace } from "./ledger.ts";
-import { accountName, activity, activityLabel, amountText, balances, cashLedger, claims, currencyLabel, dayLabel, formatMoneyInput, inPeriod, periodReport, periodLabel, periodStart, today, workspaceForCurrency } from "./ledger.ts";
+import { accountName, activity, activityLabel, amountText, balances, cashLedger, claims, currencyLabel, dayLabel, formatMoneyInput, inPeriod, periodReport, periodLabel, periodStart, receiptClaimKey, today, workspaceForCurrency } from "./ledger.ts";
 
 export type StatementKind = "overview" | "transactions" | "reimbursements" | "investments";
 const titles: Record<StatementKind, string> = {
@@ -166,9 +166,9 @@ export async function createStatement(workspace: Workspace, period: string, curr
     const newClaims = report.entries.reduce((sum, row) => sum + row.reimbursable_minor, 0);
     block(kind === "overview" ? "Reimbursements at period end" : "Claims and balances", ["Date / due", "Expense / counterparty", "Status", "Claimed", "Received", "Outstanding"],
       relevant.length ? relevant.map(claim => [
-        claim.entry.occurred_on + (claim.entry.due_on ? "\nDue " + claim.entry.due_on : ""),
-        claim.entry.description + "\n" + claim.entry.counterparty, claim.status,
-        num(claim.entry.reimbursable_minor), num(claim.paid), num(claim.remaining),
+        claim.entry.occurred_on + (claim.due_on ? "\nDue " + claim.due_on : ""),
+        claim.entry.description + "\n" + claim.counterparty, claim.status,
+        num(claim.amount_minor), num(claim.paid), num(claim.remaining),
       ]) : [["", "No claims in this view", "", "", "", ""]],
       { 0: { cellWidth: 31 }, 2: { cellWidth: 18 }, 3: { halign: "right", cellWidth: 24 }, 4: { halign: "right", cellWidth: 24 }, 5: { halign: "right", cellWidth: 26 } },
       kind === "reimbursements" ? [
@@ -177,10 +177,10 @@ export async function createStatement(workspace: Workspace, period: string, curr
         ["", "Closing outstanding", "", "", "", num(report.receivable)],
       ] : []);
     if (kind === "reimbursements") {
-      const descriptions = new Map(relevant.map(claim => [claim.entry.id, claim.entry.description]));
+      const descriptions = new Map(relevant.map(claim => [claim.key, claim.entry.description + "\n" + claim.counterparty]));
       block("Payments received in period", ["Date", "Claim / notes", "Deposit account", "Amount"],
         report.receipts.length ? report.receipts.toSorted((a, b) => a.received_on.localeCompare(b.received_on)).map(row => [
-          row.received_on, (descriptions.get(row.expense_id) ?? "Reimbursement") + (row.notes ? "\n" + row.notes : ""),
+          row.received_on, (descriptions.get(receiptClaimKey(row)) ?? "Reimbursement") + (row.notes ? "\n" + row.notes : ""),
           accountName(scope, row.account_id), num(row.amount_minor),
         ]) : [["", "No payments received", "", ""]],
         { 0: { cellWidth: 24 }, 2: { cellWidth: 38 }, 3: amountColumn }, [["", "Total received", "", num(report.collected)]]);
