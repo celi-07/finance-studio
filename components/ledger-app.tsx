@@ -92,11 +92,12 @@ function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { clo
       onClick={current === "sign-in" ? onBack : () => switchTo("sign-in")}><ArrowLeft size={20} aria-hidden="true"/></button>}<Brand/></div>
     <h1>{title}</h1><p>{cloud.authMode === "oauth" ? "Use your Google or Apple account to get started." : current === "sign-up" ? "Use your email to create an account." : "Manage your finances in one place."}</p>
     {returnError && <p className="form-message error" role="alert">Sign-in was interrupted. Choose a sign-in method to try again.</p>}
-    {cloud.authMode && current === "sign-in" && <ProviderSignIn cloud={cloud}/>}
+    {cloud.authMode === "oauth" && current === "sign-in" && <ProviderSignIn cloud={cloud}/>}
     {cloud.authMode !== "oauth" && <form onSubmit={submit}>
       {current !== "recover" && <Field label="Email"><input required name="email" type="email" autoComplete={current === "reset" ? "email" : "username"}/></Field>}
       {current !== "reset" && <Field label={current === "recover" ? "New password" : "Password"}><input required name="password" type="password" minLength={current === "sign-in" ? undefined : 8} autoComplete={current === "sign-in" ? "current-password" : "new-password"}/></Field>}
       {error && <p className="form-message error" role="alert">{error}</p>}{message && <p className="form-message success" role="status">{message}</p>}
+      {cloud.authMode && current === "sign-in" && <ProviderSignIn cloud={cloud} aboveEmailSubmit/>}
       <button className="button primary" disabled={working}>{working ? "Working…" : label}</button>
     </form>}
     {cloud.authMode !== "oauth" && current === "sign-in" && <div className="auth-links">

@@ -32,7 +32,7 @@ export function FinanceWelcome({ demo, onStart }: { demo: boolean; onStart: () =
   </main>;
 }
 
-export function ProviderSignIn({ cloud }: { cloud: CloudConfig }) {
+export function ProviderSignIn({ cloud, aboveEmailSubmit }: { cloud: CloudConfig; aboveEmailSubmit?: boolean }) {
   const [pending, setPending] = useState<"google" | "apple" | null>(null);
   const [problem, setProblem] = useState("");
   async function connect(provider: "google" | "apple") {
@@ -47,9 +47,11 @@ export function ProviderSignIn({ cloud }: { cloud: CloudConfig }) {
       setPending(null);
     }
   }
+  const apple = cloud.authMode !== "google" && <button type="button" aria-label="Sign in with Apple" onClick={() => void connect("apple")} disabled={pending !== null}><img src="/apple-sign-in.png" alt=""/></button>;
   return <div className="provider-sign-in">
-    <button type="button" aria-label="Sign in with Google" onClick={() => void connect("google")} disabled={pending !== null}><img src="/google-sign-in.png" alt=""/></button>
-    {cloud.authMode !== "google" && <button type="button" aria-label="Sign in with Apple" onClick={() => void connect("apple")} disabled={pending !== null}><img src="/apple-sign-in.png" alt=""/></button>}
+    {aboveEmailSubmit && apple}
+    <button type="button" className="button google-provider" aria-label="Sign in with Google" onClick={() => void connect("google")} disabled={pending !== null}><img src="/google-sign-in.png" alt=""/></button>
+    {!aboveEmailSubmit && apple}
     {pending && <p role="status">Opening {pending === "google" ? "Google" : "Apple"}…</p>}
     {problem && <p role="alert" className="form-message error">{problem}</p>}
   </div>;

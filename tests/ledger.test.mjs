@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
 
@@ -113,6 +113,22 @@ test("a combined payment settles several claims and appears as one cash movement
   assert.deepEqual(activity(workspace, month).filter(row => row.receipt).map(row => [row.id, row.amount]), [["deposit", 5000]]);
   assert.equal(cashLedger(workspace, month, "IDR").inflow, 5000);
   assert.equal(reimbursementReport(workspace, month, ["Alex"]).collected, 2000);
+});
+
+test("Overview trends use monthly income, gross expenses, and wealth in one currency", () => {
+  const workspace = setup();
+  workspace.accounts.push({ ...account("usd", "bank", 90_000), currency: "USD" });
+  workspace.transactions = [
+    entry("income", "income", 10_000, { occurred_on: "2025-01-10" }),
+    entry("expense", "expense", 5_000, { reimbursable_minor: 2_000, counterparty: "Sam" }),
+    entry("usd-income", "income", 30_000, { account_id: "usd" }),
+  ];
+  workspace.reimbursement_receipts = [{ id: "payment", expense_id: "expense", account_id: "bank", received_on: "2025-02-11", amount_minor: 1_000 }];
+  assert.deepEqual(overviewHistory(workspace, "2025", "IDR", "2025-02"), [
+    { month: "2025-01", wealth: 110_000, income: 10_000, expenses: 0 },
+    { month: "2025-02", wealth: 107_000, income: 0, expenses: 5_000 },
+  ]);
+  assert.equal(overviewHistory(workspace, "all", "USD", "2025-02").at(-1).wealth, 120_000);
 });
 
 test("only browser-safe Supabase settings reach the client", () => {
