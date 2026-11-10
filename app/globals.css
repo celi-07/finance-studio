@@ -406,8 +406,16 @@ strong { font-weight: 660; }
 .welcome-features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 25px; padding-block: 28px; border-block: 1px solid var(--line); }
 .welcome-features h2 { margin-top: 9px; }
 .welcome-features p { color: var(--muted); font-size: .86rem; margin-top: 4px; }
-.welcome-footer { font-size: .82rem; color: var(--muted); }
+.welcome-footer { flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
+.welcome-footer-links { display: flex; flex-wrap: wrap; gap: 8px 20px; }
 .welcome-footer a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.privacy-page { max-width: 56rem; }
+.privacy-policy { --panel-tint: var(--wash-orchid); padding: clamp(20px, 5vw, 48px); line-height: 1.65; }
+.privacy-policy .policy-date { color: var(--muted); font-size: .86rem; margin-block: 6px 18px; }
+.privacy-policy section { margin-top: 24px; }
+.privacy-policy h2 { font-size: 1.2rem; margin-bottom: 6px; }
+.privacy-policy section p + p { margin-top: 10px; }
+.privacy-policy a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 
 .cash-report { display: flex; flex-direction: column; overflow: hidden; }
 .balance-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; padding: 25px clamp(18px, 3vw, 32px) 24px; position: relative; isolation: isolate; overflow: hidden;
