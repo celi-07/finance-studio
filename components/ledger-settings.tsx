@@ -169,7 +169,8 @@ const guideSteps = [
   ["Record income and spending", "Choose Add entry. Select an account and enter the amount in its currency. For a batch, switch to Spreadsheet and paste rows with the account names from the current sheet."],
   ["Track reimbursements", "Mark an expense as reimbursable and enter the claim amount and who owes it. Open Reimbursements to record payments into an account on the same sheet and in the same currency."],
   ["Track investments", "Add an investment account, then record contributions or withdrawals between accounts in the same sheet and currency. In Investments, use Update valuation to record its current total value."],
-  ["Review and export", "Choose a reporting month. Overview can show one sheet or All sheets, with each currency totaled separately. Select a currency to open the detailed view or download its monthly PDF."],
+  ["Review and export", "Choose Month, Year, or All time. Overview can show one sheet or All sheets, with each currency totaled separately. Select one currency to download a PDF for the selected period."],
+  ["Draft with the Assistant", "Open Assistant and describe an income or expense. Review the editable preview or ask for changes in chat, then choose Submit transaction."],
   ["Customize your entry form", "In Settings, create income or expense categories and add custom fields such as an invoice reference. Fields appear in both the form and the spreadsheet."],
 ] as const;
 

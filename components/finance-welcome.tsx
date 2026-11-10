@@ -28,7 +28,7 @@ export function FinanceWelcome({ demo, onStart }: { demo: boolean; onStart: () =
       <article><span className="glyph" data-tone="mint"><Sheet size={20}/></span><h2>Quick entry and spreadsheet paste</h2><p>Enter one transaction in the form or paste a batch from Excel or Google Sheets.</p></article>
       <article><span className="glyph" data-tone="amber"><ChartNoAxesCombined size={20}/></span><h2>Reports in your currencies</h2><p>Review each currency’s balance and download a monthly PDF statement.</p></article>
     </section>
-    <footer className="welcome-footer"><span>Finance Studio</span><a href="mailto:whiteeorangee@gmail.com">Contact support</a></footer>
+    <footer className="welcome-footer"><span>Finance Studio @whiteeorangee</span><a href="mailto:whiteeorangee@gmail.com">Contact support</a></footer>
   </main>;
 }
 

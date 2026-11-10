@@ -6,7 +6,7 @@ Finance Studio tracks income, spending, cash movement, reimbursements and invest
 
 From this folder, run **npm ci** and **npm run dev**. Open the local address printed by the development server.
 
-Leave the Supabase settings blank to use the demo. The sample entries are fictional. Changes in this mode stay in the current browser. Use Settings → Demo data to export demo data as JSON or reset it. To download an A4 monthly statement, choose a month and currency and select **Download PDF**. On Transactions, active filters limit the line items and entry details. The summary still covers the full month in the selected currency.
+Leave the Supabase settings blank to use the demo. The sample entries are fictional. Changes in this mode stay in the current browser. Use Settings → Demo data to export demo data as JSON or reset it. To download an A4 statement, choose a reporting period and currency and select **Download PDF**. Overview exports the full financial report. Transactions exports a cash ledger with opening and closing balances. Reimbursements exports claims and payments, and Investments exports holdings, movements, and valuations. On Transactions, active filters limit the line items and entry details. Running balances and the summary still cover the full selected period and currency.
 
 ## Connect Supabase
 
@@ -51,10 +51,14 @@ To launch Google alongside email before Apple is ready, enable **Google** in the
 - Transfers between cash accounts leave aggregate cash unchanged. Investment contributions and withdrawals move value between cash and investment accounts.
 - Reimbursable expenses reduce cash by the amount paid. Personal spending is the share that belongs to you. Receipts add cash and reduce the open claim separately.
 - Investment estimates use the last manually entered end-of-day valuation plus later contributions minus later withdrawals. Until you enter a valuation, the contributed balance supplies the estimate.
-- PDFs are generated in the browser. The embedded DejaVu Sans font covers Latin, Greek, Cyrillic and other supported glyphs. For scripts or symbols outside its glyph set, the original text remains in Finance Studio.
+- PDFs are generated in the browser with [Plus Jakarta Sans](https://github.com/tokotype/PlusJakartaSans). DejaVu Sans supplies fallback glyphs for scripts such as Greek and Cyrillic. For characters outside both fonts’ glyph sets, the original text remains in Finance Studio.
 
 ## Spreadsheet entry
 
 Choose **Add entry → Spreadsheet** or use **Spreadsheet** on Transactions. Paste from Excel or Sheets into the first matching cell. Core columns are Date, Type, Description, Amount, Account and Category. The destination, reimbursement, notes and custom field columns follow. Use **YYYY-MM-DD** or **DD/MM/YYYY**, account and category names from the selected sheet, and each account’s currency for its amount. For example, enter **125.000,50** in IDR and **125,000.50** in USD. The whole batch stays open for correction when any row is invalid.
 
-To enter one transaction in plain language, choose **Add entry → Describe a transaction**. Try **Beli kopi Tuku 27rb via Blu** or **Received USD 500 via Dollar account yesterday**, using the name of an account on your sheet. The browser builds an editable draft using local rules. Review it and select **Save entry**.
+Type into cells, paste from a spreadsheet, or use the controls inside cells to choose dates and listed options. Hover over a column heading for an explanation. To fill down, drag the small corner of a filled cell over the rows below it. You can also focus a cell and press **Ctrl+D** or **Command+D** to copy from the row above. **Reimbursement (optional)** is the portion someone owes you. Enter the full transaction value under **Amount** and leave **Due date** blank when there is no deadline.
+
+Use **Assistant** to draft one income or expense in plain language. Try **Beli nasi goreng Rp47.900 tanggal 3 Okt 2026**, then send **pakai BCA** or edit the preview directly. The browser uses local rules to prepare the draft. Select **Submit transaction** to save it.
+
+Use **Month**, **Year**, or **All time** to set the reporting period on Overview, Transactions, Reimbursements, and Investments. The PDF uses the same period. The activity calendar appears in Month view. Savings goals show cash and allocations as of today.

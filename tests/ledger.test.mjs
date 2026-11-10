@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, validateEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, validateEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
+import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
 
 const month = "2025-02";
 const account = (id, kind, opening_minor = 0) => ({ id, name: id, kind, opening_minor, opening_date: "2025-01-01", archived: false });
@@ -166,4 +167,60 @@ test("formats money fields with comma grouping while preserving legacy IDR entry
   assert.equal(formatMoneyInput("90071992547409.91", "USD"), "90,071,992,547,409.91");
   assert.equal(formatMoneyInput("1.003", "KWD"), "1.003");
   assert.equal(groupNumber("-123456.09"), "-123,456.09");
+});
+
+test("a year includes only that year's activity and snapshots keep earlier balances", () => {
+  const workspace = setup();
+  workspace.transactions = [
+    entry("previous", "income", 5_000, { occurred_on: "2024-12-15" }),
+    entry("jan", "income", 8_000, { occurred_on: "2025-01-05" }),
+    entry("feb", "expense", 4_000),
+    entry("next", "income", 10_000, { occurred_on: "2026-01-01" }),
+  ];
+  assert.deepEqual(activity(workspace, "2025").map(row => row.id), ["feb", "jan"]);
+  assert.equal(periodReport(workspace, "2025").income, 8_000);
+  assert.equal(periodReport(workspace, "2025").cash, 104_000);
+  assert.equal(periodReport(workspace, "all").income, 23_000);
+  assert.equal(periodReport(workspace, "all").cash, 114_000);
+});
+
+test("cash statements reconcile account openings, historic entries, transfers, investments and payments", () => {
+  const workspace = setup();
+  workspace.accounts[1].opening_date = "2025-02-03";
+  workspace.accounts[1].opening_minor = 6_000;
+  workspace.transactions = [
+    entry("before-opening", "expense", 1_000, { account_id: "wallet", occurred_on: "2025-02-01" }),
+    entry("salary", "income", 20_000),
+    entry("trip", "expense", 7_000, { reimbursable_minor: 5_000, counterparty: "Team" }),
+    entry("internal", "transfer", 9_000, { destination_account_id: "wallet" }),
+    entry("buy fund", "investment_contribution", 10_000, { destination_account_id: "fund" }),
+  ];
+  workspace.reimbursement_receipts = [{ id: "payment", expense_id: "trip", account_id: "wallet", received_on: "2025-02-08", amount_minor: 3_000 }];
+  const ledger = cashLedger(workspace, month, "IDR");
+  assert.deepEqual([ledger.start, ledger.openings, ledger.inflow, ledger.outflow, ledger.end], [100_000, 6_000, 23_000, 17_000, 112_000]);
+  assert.equal(ledger.end, periodReport(workspace, month).cash);
+  assert.equal(ledger.rows.find(item => item.row?.id === "before-opening").change, 0);
+  assert.equal(ledger.rows.find(item => item.row?.id === "internal").change, 0);
+});
+
+test("a reimbursement saves null for an empty or whitespace-only due date", () => {
+  const workspace = setup();
+  const draft = draftFrom(entry("claim", "expense", 3_000, { reimbursable_minor: 2_000, counterparty: "Team" }));
+  for (const due_on of [null, "", "   "]) assert.equal(validateEntry(workspace, { ...draft, due_on }).entry.due_on, null);
+  assert.match(validateEntry(workspace, { ...draft, due_on: "2025-02-01" }).errors.due_on, /on or after/);
+});
+
+test("the assistant extracts Indonesian named dates and edits a draft without guessing between accounts", () => {
+  const workspace = setup();
+  workspace.accounts[0].name = "BCA";
+  const today = "2026-11-10";
+  let next = quickEntry(workspace, "Beli Nasi Goreng Pondok Reagan Rp47900 di tanggal 3 okt 2026", "IDR", today);
+  assert.deepEqual([next.draft.description, next.draft.occurred_on, next.draft.amount, next.draft.account_id],
+    ["Nasi Goreng Pondok Reagan", "2026-10-03", "47.900", ""]);
+  next = reviseQuickEntry(workspace, next, "pakai BCA", today);
+  next = reviseQuickEntry(workspace, next, "ubah tanggal ke 4 Okt 2026", today);
+  next = reviseQuickEntry(workspace, next, "ganti jumlah ke Rp 52.000", today);
+  assert.equal(next.draft.occurred_on, "2026-10-04");
+  assert.equal(validateEntry(workspace, next.draft).entry.amount_minor, 5_200_000);
+  assert.throws(() => quickEntry(workspace, "Beli nasi Rp10000 31 Feb 2026", "IDR", today), /valid date/);
 });

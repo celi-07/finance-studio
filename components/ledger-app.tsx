@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { isAuthError } from "@supabase/supabase-js";
-import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal, Sparkles } from "lucide-react";
 import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, isCurrency, money, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type SavingsGoal, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
@@ -11,16 +11,18 @@ import { downloadStatement } from "@/lib/statement";
 import { EntryDialog } from "./ledger-entry";
 import { BookDialog, FinanceGuide, ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
 import { Brand, Empty, Field, Modal } from "./ledger-ui";
-import { Picker, ReportingMonth } from "./ledger-picker";
+import { Picker, ReportingPeriod, type PeriodMode } from "./ledger-picker";
 import { CombinedOverview, filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 import { FinanceWelcome, ProviderSignIn } from "./finance-welcome";
 import { ActivityCalendar, GoalDialog, SavingsGoals } from "./ledger-planning";
+import { EntryAssistant } from "./ledger-assistant";
 
 const routes = {
   overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
   transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: ReceiptText },
   reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
   investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartNoAxesCombined },
+  assistant: { label: "Assistant", caption: "Draft a transaction in your own words", icon: Sparkles },
   settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
 type Route = keyof typeof routes;
@@ -108,6 +110,9 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const configured = cloud !== null;
   const [route, setRoute] = useState<Route>("overview");
   const [month, setMonth] = useState(() => configured ? today().slice(0, 7) : demoMonth());
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("month");
+  const period = periodMode === "month" ? month : periodMode === "year" ? month.slice(0, 4) : "all";
+  const reportingPage = route !== "settings" && route !== "assistant";
   const [preferredCurrency, setPreferredCurrency] = useState<Currency>(defaultCurrency);
   const [bookId, setBookId] = useState("");
   const [allSheets, setAllSheets] = useState(true);
@@ -175,7 +180,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         initialized.current = true;
         owner.current = nextOwner;
         setSignedIn(Boolean(nextOwner));
-        setBookId(""); setAllSheets(true); setAllCurrencies(true);
+        setBookId(""); setAllSheets(true); setAllCurrencies(true); setPeriodMode("month");
         setPreferredCurrency(defaultCurrency);
         setFilters({ search: "", kind: "", account: "" });
         update(emptyWorkspace);
@@ -270,11 +275,11 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     catch (error) { setProblem(errorText(error)); }
   }
   async function makePdf() {
-    if (exporting) return;
+    if (exporting || route === "settings" || route === "assistant") return;
     setExporting(true); setProblem("");
     try {
-      const filtered = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, month, filters, currency) : undefined;
-      await downloadStatement(reportData, month, currency, !configured, filtered, showingAllSheets ? "All sheets" : currentSheet.name);
+      const filtered = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, period, filters, currency) : undefined;
+      await downloadStatement(reportData, period, currency, !configured, route, showingAllSheets ? "All sheets" : currentSheet.name, filtered);
       setNotice("Statement downloaded");
     } catch (error) { setProblem(errorText(error)); }
     finally { setExporting(false); }
@@ -299,7 +304,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className="sidebar">
       <div className="sidebar-brand"><Brand/></div>
-      <nav className="nav" aria-label="Finance Studio" style={{ "--selection": Object.keys(routes).indexOf(route) } as CSSProperties}>
+      <nav className="nav" aria-label="Finance Studio" style={{ "--selection": Object.keys(routes).indexOf(route), "--nav-count": Object.keys(routes).length } as CSSProperties}>
         <span className="nav-lens" aria-hidden="true"/>
         {Object.entries(routes).map(([key, { label, icon: Icon }]) => <a key={key} href={"#" + key} aria-current={route === key ? "page" : undefined}
           onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); navigate(key as Route); } }}>
@@ -311,18 +316,18 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     <main className="main-content" id="main-content">
       <div className="page">
         <header className="page-heading" key={"heading-" + route}><div className="page-title"><h1>{page.label}</h1>{page.caption && <p>{page.caption}</p>}</div>
-          <div className={"header-actions" + (route === "settings" ? "" : " reporting-actions")}>
+          <div className={"header-actions" + (reportingPage ? " reporting-actions" : "")}>
             <div className="report-sheet"><Picker label="Finance sheet" icon={Layers3} value={showingAllSheets ? "all" : currentSheet.id || personalSheet}
               options={[...(route === "overview" ? [{ value: "all", label: "All sheets" }] : []), ...sheets.map(sheet => ({ value: sheet.id || personalSheet, label: sheet.name }))]}
               onValueChange={value => selectSheet(value === personalSheet ? "" : value)}/></div>
-            {route !== "settings" && <ReportingMonth value={month} onChange={setMonth}/>}
-            {route !== "settings" && availableCurrencies.length > 1 && <div className="report-currency"><Picker label="Reporting currency" value={showingAllCurrencies ? "all" : currency}
+            {reportingPage && <ReportingPeriod value={month} mode={periodMode} onChange={setMonth} onModeChange={setPeriodMode}/>}
+            {reportingPage && availableCurrencies.length > 1 && <div className="report-currency"><Picker label="Reporting currency" value={showingAllCurrencies ? "all" : currency}
               options={[...(route === "overview" ? [{ value: "all", label: "All currencies" }] : []), ...availableCurrencies.map(code => ({ value: code, label: code }))]} onValueChange={code => {
                 setAllCurrencies(code === "all");
                 if (isCurrency(code)) setPreferredCurrency(code);
                 setFilters(previous => ({ ...previous, account: "" }));
               }}/></div>}
-            {route !== "settings" && !showingAllCurrencies && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} onClick={makePdf} disabled={exporting || loading}>
+            {reportingPage && !showingAllCurrencies && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} onClick={makePdf} disabled={exporting || loading}>
               <Download size={17}/><span className="desktop-export">{exporting ? "Preparing…" : "Download PDF"}</span><span className="compact-export" aria-hidden="true">{exporting ? "Saving…" : "PDF"}</span>
             </button>}
             {route === "transactions" && <button className="button secondary sheet-action" onClick={() => openEntry(undefined, undefined, true)}><Sheet size={17}/> Spreadsheet</button>}
@@ -330,29 +335,35 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
               <button className="button primary" onClick={() => setPanel({ type: "book" })}><Plus size={17}/> Add sheet</button>
               {currentSheet.id && <button className="button quiet" onClick={() => setPanel({ type: "book", book: currentSheet })}><Pencil size={16}/> Rename sheet</button>}
               {configured && <button className="button quiet" onClick={signOut}><LogOut size={16}/> Sign out</button>}
-            </> : !combinedSheets && <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>}
+            </> : reportingPage && !combinedSheets && <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>}
           </div>
         </header>
         {problem && <div className="form-message error" role="alert"><CircleAlert size={18}/>{problem}<button className="button quiet" onClick={() => setProblem("")}>Dismiss</button></div>}
         {loading && <div className="panel"><Empty title="Opening Finance Studio" description="Loading entries and accounts…"/></div>}
         <div className="page-content" key={"content-" + route}>
           {!loading && route === "overview" && (combinedSheets || showingAllCurrencies
-            ? <CombinedOverview workspace={reportBase} month={month} currencies={showingAllCurrencies ? availableCurrencies : [currency]} allSheets={combinedSheets} onOpenSheet={selectSheet}/>
-            : <Overview workspace={reportData} month={month} currency={currency} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>)}
-          {!loading && route === "overview" && <div className="planning-grid">
-            <ActivityCalendar workspace={reportBase} month={month} currency={currency} choices={showingAllCurrencies ? availableCurrencies : undefined} onOpen={openActivity}/>
+            ? <CombinedOverview workspace={reportBase} period={period} currencies={showingAllCurrencies ? availableCurrencies : [currency]} allSheets={combinedSheets} onOpenSheet={selectSheet}/>
+            : <Overview workspace={reportData} period={period} currency={currency} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>)}
+          {!loading && route === "overview" && <div className={periodMode === "month" ? "planning-grid" : "planning-grid goals-only"}>
+            {periodMode === "month" && <ActivityCalendar workspace={reportBase} month={month} currency={currency} choices={showingAllCurrencies ? availableCurrencies : undefined} onOpen={openActivity}/>}
             <SavingsGoals workspace={reportBase} currencies={showingAllCurrencies || availableCurrencies.length <= 1 ? goalCurrencies : [currency]}
               onAdd={!combinedSheets && cashCurrencies.length ? () => setPanel({ type: "goal" }) : undefined}
               onEdit={goal => setPanel({ type: "goal", goal })}/>
           </div>}
-          {!loading && route === "transactions" && <Transactions workspace={reportData} month={month} currency={currency} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
-          {!loading && route === "reimbursements" && <Reimbursements workspace={reportData} month={month} currency={currency} onReceive={id => setPanel({ type: "receive", id })}
+          {!loading && route === "transactions" && <Transactions workspace={reportData} period={period} currency={currency} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
+          {!loading && route === "reimbursements" && <Reimbursements workspace={reportData} period={period} currency={currency} onReceive={id => setPanel({ type: "receive", id })}
             onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
-          {!loading && route === "investments" && <Investments workspace={reportData} month={month} currency={currency} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
+          {!loading && route === "investments" && <Investments workspace={reportData} period={period} currency={currency} onEntry={openEntry} onValue={id => setPanel({ type: "value", id })} onSettings={() => navigate("settings")}/>}
           {!loading && route === "settings" && <Settings workspace={bookData} cloud={configured} onManage={edit => setPanel({ type: "manage", edit })}
             onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onGuide={() => setPanel({ type: "guide" })}/>}
         </div>
-        <footer className="footer"><span>Finance Studio</span></footer>
+        {!loading && <div hidden={route !== "assistant"}>
+          <EntryAssistant key={currentSheet.id} workspace={bookData} currency={currency} onSave={async entry => {
+            await save("transactions", [entry]); setMonth(entry.occurred_on.slice(0, 7));
+            setPreferredCurrency(currencyForAccount(bookData, entry.account_id));
+          }}/>
+        </div>}
+        <footer className="footer"><span>Finance Studio @whiteeorangee</span></footer>
       </div>
     </main>
     {panel?.type === "entry" && <EntryDialog workspace={bookData} month={month} currency={currency} original={panel.original} kind={panel.kind} preset={panel.preset} initialBulk={panel.bulk} onClose={close}
