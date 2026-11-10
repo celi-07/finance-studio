@@ -149,6 +149,23 @@ export function workspaceForBook(workspace: Workspace, bookId: string): Workspac
     categories: workspace.categories.filter(inBook), field_definitions: workspace.field_definitions.filter(inBook) },
     workspace.accounts.filter(inBook));
 }
+export function withoutFinanceSheet(workspace: Workspace, bookId: string): Workspace {
+  if (!bookId || !workspace.finance_books.some(book => book.id === bookId)) return workspace;
+  const keep = (row: BookRecord) => row.ledger_id !== bookId;
+  const accountIds = new Set(workspace.accounts.filter(account => !keep(account)).map(account => account.id));
+  return {
+    ...workspace,
+    finance_books: workspace.finance_books.filter(book => book.id !== bookId),
+    accounts: workspace.accounts.filter(keep),
+    categories: workspace.categories.filter(keep),
+    field_definitions: workspace.field_definitions.filter(keep),
+    savings_goals: workspace.savings_goals.filter(keep),
+    reimbursement_people: workspace.reimbursement_people.filter(keep),
+    transactions: workspace.transactions.filter(row => !accountIds.has(row.account_id)),
+    reimbursement_receipts: workspace.reimbursement_receipts.filter(row => !accountIds.has(row.account_id)),
+    investment_valuations: workspace.investment_valuations.filter(row => !accountIds.has(row.investment_account_id)),
+  };
+}
 export const categoryName = (workspace: Workspace, id: string | null) => workspace.categories.find(category => category.id === id)?.name ?? "Uncategorized";
 export const needsDestination = (kind: string) => kind === "transfer" || kind.startsWith("investment_");
 export const editableAccounts = (workspace: Workspace, kind: string, destination = false, currentId?: string | null) => workspace.accounts.filter(account => {
