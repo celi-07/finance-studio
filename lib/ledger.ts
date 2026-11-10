@@ -81,6 +81,7 @@ export const monthLabel = (month: string) => monthFormat.format(new Date(month +
 export const periodLabel = (period: string) => period === "all" ? "All time" : period.length === 4 ? period : monthLabel(period);
 export const inPeriod = (date: string, period: string) => period === "all" || date.startsWith(period);
 export const periodStart = (period: string) => period === "all" ? "0000-01-01" : period.length === 4 ? period + "-01-01" : period + "-01";
+const periodEnd = (period: string) => period === "all" ? "9999-99-99" : period.length === 4 ? (Number(period) + 1) + "-01-01" : shiftMonth(period, 1) + "-01";
 export const dayLabel = (day: string) => dayFormat.format(new Date(day + "T00:00:00Z"));
 export function shiftMonth(month: string, delta: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -313,6 +314,28 @@ export function claims(workspace: Workspace, before = "9999-99-99", asOf = today
     return { ...share, key, entry, receipts: payments, paid, remaining, status, overdue: !!(remaining && share.due_on && share.due_on < asOf) };
   }));
 }
+
+// The workspace is already scoped to the report's sheet and currency.
+export function reimbursementReport(workspace: Workspace, period: string, selectedPeople: readonly string[] = []) {
+  const before = periodEnd(period);
+  const relevant = claims(workspace, before, before < today() ? before : today()).filter(claim =>
+    claim.remaining > 0 || inPeriod(claim.entry.occurred_on, period) || claim.receipts.some(receipt => inPeriod(receipt.received_on, period)));
+  const people = [...new Set(relevant.map(claim => claim.counterparty))].sort((a, b) => a.localeCompare(b));
+  const selected = new Set(selectedPeople);
+  const matching = selected.size ? relevant.filter(claim => selected.has(claim.counterparty)) : relevant;
+  const receipts: Receipt[] = [];
+  let opening = 0;
+  let newClaims = 0;
+  for (const claim of matching) {
+    const payments = claim.receipts.filter(receipt => inPeriod(receipt.received_on, period));
+    receipts.push(...payments);
+    if (inPeriod(claim.entry.occurred_on, period)) newClaims += claim.amount_minor;
+    else opening += claim.remaining + total(payments, receipt => receipt.amount_minor);
+  }
+  return { claims: matching, people, receipts, opening, newClaims,
+    collected: total(receipts, receipt => receipt.amount_minor), outstanding: total(matching, claim => claim.remaining) };
+}
+
 export function balances(workspace: Workspace, before: string) {
   const linked = linkedIncomeIds(workspace);
   const openings = new Map(workspace.accounts.map(account => [account.id, account.opening_date]));
@@ -348,7 +371,7 @@ export function balances(workspace: Workspace, before: string) {
 }
 export function periodReport(data: Workspace, period: string, currency: Currency = defaultCurrency) {
   const workspace = workspaceForCurrency(data, currency);
-  const before = period === "all" ? "9999-99-99" : period.length === 4 ? (Number(period) + 1) + "-01-01" : shiftMonth(period, 1) + "-01";
+  const before = periodEnd(period);
   const accounts = balances(workspace, before);
   const linked = linkedIncomeIds(workspace);
   const entries = workspace.transactions.filter(entry => !linked.has(entry.id) && inPeriod(entry.occurred_on, period)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));

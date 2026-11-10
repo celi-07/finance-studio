@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { DropdownMenu } from "radix-ui";
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, BanknoteArrowDown, BanknoteArrowUp, CalendarDays, ChartNoAxesCombined, ChartPie,
-  FileClock, HandCoins, Landmark, Layers3, ListFilter, Plus, Search, ShoppingBag, TicketCheck, WalletCards, type LucideIcon,
+  Check, ChevronDown, FileClock, HandCoins, Landmark, Layers3, ListFilter, Plus, Search, ShoppingBag, TicketCheck, Users, WalletCards, type LucideIcon,
 } from "lucide-react";
 import {
-  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, inPeriod, monthLabel, periodLabel, periodReport, shiftMonth, today, workspaceForBook,
+  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, inPeriod, monthLabel, periodLabel, periodReport, reimbursementReport, shiftMonth, today, workspaceForBook,
   type Activity, type Currency, type Kind, type Receipt, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, ActivityRow, Empty, palette } from "./ledger-ui";
@@ -198,25 +199,62 @@ export function Transactions({ workspace, period, currency, filters, setFilters,
 
 const claimStatuses = ["All", "Pending", "Partial", "Settled"];
 
-export function Reimbursements({ workspace, period, currency, onReceive, onOpen, onPayment }: {
+function ReimbursementPeople({ people, selected, onChange }: { people: string[]; selected: string[]; onChange: (people: string[]) => void }) {
+  const options = [...new Set([...people, ...selected])].sort((a, b) => a.localeCompare(b));
+  const label = selected.length > 1 ? selected.length + " people selected" : selected[0] ?? "All people";
+  return <DropdownMenu.Root modal={false}>
+    <DropdownMenu.Trigger type="button" className="picker-trigger person-filter" aria-label={"Filter by person, " + label} disabled={!options.length}>
+      <Users size={17} className="picker-leading" aria-hidden="true"/><span className="picker-value">{label}</span>
+      <ChevronDown size={15} className="picker-chevron" aria-hidden="true"/>
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <DropdownMenu.Content className="picker-menu person-menu" aria-label="Filter reimbursements by person" align="start" sideOffset={7} collisionPadding={12}>
+        <DropdownMenu.CheckboxItem className="picker-option" checked={!selected.length} data-selected={!selected.length || undefined}
+          onSelect={() => onChange([])}>
+          All people<DropdownMenu.ItemIndicator className="picker-check"><Check size={15} aria-hidden="true"/></DropdownMenu.ItemIndicator>
+        </DropdownMenu.CheckboxItem>
+        <DropdownMenu.Separator className="person-menu-divider"/>
+        <DropdownMenu.Group className="picker-options" aria-label="People">
+          {options.map(person => {
+            const checked = selected.includes(person);
+            return <DropdownMenu.CheckboxItem key={person} className="picker-option" checked={checked} data-selected={checked || undefined} textValue={person}
+              onSelect={event => event.preventDefault()}
+              onCheckedChange={next => onChange(next ? [...selected, person] : selected.filter(name => name !== person))}>
+              <span>{person}</span><DropdownMenu.ItemIndicator className="picker-check"><Check size={15} aria-hidden="true"/></DropdownMenu.ItemIndicator>
+            </DropdownMenu.CheckboxItem>;
+          })}
+        </DropdownMenu.Group>
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>;
+}
+
+export function Reimbursements({ workspace, period, currency, selectedPeople, onPeopleChange, onReceive, onOpen, onPayment }: {
   workspace: Workspace; period: string; currency: Currency; onReceive: (id: string) => void; onOpen: (id: string) => void; onPayment: (receipt: Receipt) => void;
+  selectedPeople: string[]; onPeopleChange: (people: string[]) => void;
 }) {
   const format = (amount: number) => money(amount, currency);
   const [status, setStatus] = useState("All");
-  const report = periodReport(workspace, period, currency);
+  const report = reimbursementReport(workspace, period, selectedPeople);
   const canReceive = new Set(claims(workspace).filter(claim => claim.remaining > 0 && claim.entry.occurred_on <= today()).map(claim => claim.key));
-  const matching = report.claims.filter(claim => (status === "All" || status === claim.status)
-    && (inPeriod(claim.entry.occurred_on, period) || claim.receipts.some(receipt => inPeriod(receipt.received_on, period))))
+  const matching = report.claims.filter(claim => status === "All" || status === claim.status)
     .toSorted((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0) || b.entry.occurred_on.localeCompare(a.entry.occurred_on));
   const groups = Map.groupBy(matching, claim => claim.counterparty);
   return <>
     <div className="metric-grid">
-      <Metric title="Outstanding at period end" value={format(report.receivable)} hint="Includes earlier unpaid claims" tone="amber" icon={HandCoins} period={period}/>
+      <Metric title="Outstanding at period end" value={format(report.outstanding)} hint="Includes earlier unpaid claims" tone="amber" icon={HandCoins} period={period}/>
       <Metric title="Received this period" value={format(report.collected)} hint={report.receipts.length + (report.receipts.length === 1 ? " payment" : " payments")} tone="mint" icon={TicketCheck} period={period}/>
       <Metric title="Open claims" value={report.claims.filter(claim => claim.remaining).length} hint={report.claims.filter(claim => claim.overdue).length + " overdue at reporting date"} tone="orchid" icon={FileClock} period={period}/>
     </div>
-    <div className="status-tabs segmented" style={{ "--selection": claimStatuses.indexOf(status) } as CSSProperties} role="group" aria-label="Filter reimbursements">{claimStatuses.map(label => <button key={label} aria-pressed={status === label} onClick={() => setStatus(label)}>{label}</button>)}</div>
-    {!groups.size && <div className="panel"><Empty title="No matching claims" description="Mark an expense as reimbursable when you add it. Claims appear here if the expense or a payment falls within the selected period." icon={HandCoins}/></div>}
+    <div className="claim-filters">
+      <ReimbursementPeople people={report.people} selected={selectedPeople} onChange={onPeopleChange}/>
+      <div className="status-tabs segmented" style={{ "--selection": claimStatuses.indexOf(status) } as CSSProperties} role="group" aria-label="Filter by status">{claimStatuses.map(label => <button key={label} aria-pressed={status === label} onClick={() => setStatus(label)}>{label}</button>)}</div>
+      <small className="muted">PDF uses the people selected here.</small>
+    </div>
+    {!groups.size && <div className="panel"><Empty title="No matching claims"
+      description={selectedPeople.length || status !== "All" ? "Choose other people or clear the filters to see more claims." : "Reimbursable expenses, payments, and earlier outstanding claims appear here."}
+      action={selectedPeople.length || status !== "All" ? <button className="button secondary" onClick={() => { onPeopleChange([]); setStatus("All"); }}>Clear filters</button> : undefined}
+      icon={HandCoins}/></div>}
     {Array.from(groups, ([person, personClaims]) => <section className="claim-group" key={person}><h2>{person}</h2><div className="claim-grid">{personClaims.map(claim => <article className="panel claim-card" key={claim.key}>
       <div>
         <div className="claim-top"><span className={"pill " + (claim.status === "Settled" ? "green" : claim.status === "Partial" ? "blue" : "amber")}>{claim.status}</span>{claim.overdue && <span className="pill rose">Overdue</span>}</div>

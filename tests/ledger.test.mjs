@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, validateEntry, validateFormEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
 
@@ -49,6 +49,40 @@ test("linking and unlinking an existing deposit leaves cash intact and moves it 
   workspace.reimbursement_receipts = [];
   const unlinked = monthly(workspace, month);
   assert.deepEqual([unlinked.cash, unlinked.income, unlinked.collected, unlinked.receivable], [93000, 5000, 0, 7000]);
+});
+
+test("reimbursement filters scope split claims, payments, and period totals to the selected people", () => {
+  const workspace = setup();
+  workspace.transactions = [
+    entry("group-meal", "expense", 15000, {
+      reimbursable_minor: 11000, counterparty: "Multiple people", reimbursement_claims: [
+        { id: "sam", amount_minor: 6000, counterparty: "Sam", due_on: null },
+        { id: "alex", amount_minor: 5000, counterparty: "Alex", due_on: null },
+      ],
+    }),
+    entry("older", "expense", 9000, { occurred_on: "2025-01-20", reimbursable_minor: 8000, counterparty: "Jo" }),
+    entry("settled-earlier", "expense", 1000, { occurred_on: "2025-01-10", reimbursable_minor: 1000, counterparty: "Taylor" }),
+    entry("settled-this-month", "expense", 3000, { occurred_on: "2025-01-25", reimbursable_minor: 3000, counterparty: "Nia" }),
+  ];
+  const receipt = (id, expense_id, received_on, amount_minor, claim_id) => ({ id, expense_id, account_id: "bank", received_on, amount_minor, claim_id });
+  workspace.reimbursement_receipts = [
+    receipt("sam-payment", "group-meal", "2025-02-10", 2000, "sam"),
+    receipt("alex-payment", "group-meal", "2025-02-12", 3000, "alex"),
+    receipt("jo-payment", "older", "2025-01-21", 1000),
+    receipt("taylor-payment", "settled-earlier", "2025-01-15", 1000),
+    receipt("nia-payment", "settled-this-month", "2025-02-14", 3000),
+  ];
+  const check = (selected, names, paymentIds, totals) => {
+    const report = reimbursementReport(workspace, month, selected);
+    assert.deepEqual(report.people, ["Alex", "Jo", "Nia", "Sam"]);
+    assert.deepEqual(report.claims.map(claim => claim.counterparty), names);
+    assert.deepEqual(report.receipts.map(row => row.id), paymentIds);
+    assert.deepEqual([report.opening, report.newClaims, report.collected, report.outstanding], totals);
+  };
+  check(["Sam"], ["Sam"], ["sam-payment"], [0, 6000, 2000, 4000]);
+  check(["Sam", "Jo"], ["Sam", "Jo"], ["sam-payment"], [7000, 6000, 2000, 11000]);
+  check([], ["Sam", "Alex", "Jo", "Nia"], ["sam-payment", "alex-payment", "nia-payment"], [10000, 11000, 8000, 13000]);
+  check(["Taylor"], [], [], [0, 0, 0, 0]);
 });
 
 test("only browser-safe Supabase settings reach the client", () => {
