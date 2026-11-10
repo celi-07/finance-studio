@@ -144,7 +144,7 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
       <Field label="Field type" full><Picker label="Field type" value={fieldType} onValueChange={type => setFieldType(type as FieldType)} disabled={!!edit.row}
         options={Object.entries(typeLabels).map(([value, label]) => ({ value, label }))}/></Field>
       {fieldType === "select" && <Field label="Options" hint="Enter one option per line." full><textarea name="options" defaultValue={edit.row?.options.join("\n")} rows={4} required/></Field>}
-      <label className="checkbox-field full"><input name="required" type="checkbox" defaultChecked={edit.row?.required}/> Required on new and edited entries</label>
+      <label className="checkbox-field full"><input name="required" type="checkbox" defaultChecked={edit.row?.required}/> Required in entry forms</label>
     </>}
     {edit.row && <label className="checkbox-field full"><input name="archived" type="checkbox" defaultChecked={edit.row.archived}/> Archive this {singular}</label>}
   </TaskForm>;

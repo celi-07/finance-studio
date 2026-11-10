@@ -190,7 +190,7 @@ export function validateFormEntry(workspace: Workspace, draft: EntryDraft, mode:
   return result;
 }
 
-export function validateEntry(workspace: Workspace, draft: EntryDraft): Validation {
+export function validateEntry(workspace: Workspace, draft: EntryDraft, { requireCustomFields = true } = {}): Validation {
   const errors: Record<string, string> = {};
   const existing = workspace.transactions.find(entry => entry.id === draft.id);
   const kind = Object.hasOwn(kinds, draft.kind) ? draft.kind as Kind : null;
@@ -230,10 +230,10 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft): Validati
     const raw = draft.custom[field.id];
     const value = typeof raw === "string" ? raw.trim() : raw;
     if (field.field_type === "checkbox") {
-      if (field.required && value !== true) errors[field.id] = "Select this checkbox.";
+      if (requireCustomFields && field.required && value !== true) errors[field.id] = "Select this checkbox.";
       customValues[field.id] = value === true;
     } else if (!value) {
-      if (field.required) errors[field.id] = "Complete this field.";
+      if (requireCustomFields && field.required) errors[field.id] = "Complete this field.";
       delete customValues[field.id];
     } else if (typeof value !== "string") {
       errors[field.id] = "Enter a valid value.";

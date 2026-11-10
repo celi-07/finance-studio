@@ -15,6 +15,8 @@ type Props = {
   onSave: (entries: Entry[]) => Promise<void>; onDelete?: (entry: Entry) => void; onClose: () => void;
 };
 const maxRows = 250;
+const requiredColumns = new Set(["occurred_on", "kind", "description", "amount", "account_id"]);
+const batchValidationMessage = "Fill in Date, Type, Description, Amount, and Account on each used row. Review the highlighted cells.";
 function kindMatch(value: string) {
   const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
   return Object.hasOwn(kinds, normalized) ? normalized : value.trim();
@@ -32,24 +34,31 @@ function SpreadsheetChoice({ workspace, row, column, field, text, label, choose 
     return <DatePicker compact label={label} value={parseDate(text) ?? ""} onChange={choose}
       min={column === "due_on" ? parseDate(row.occurred_on) ?? undefined : undefined} required={column === "occurred_on" || field?.required}/>;
   }
-  let options: { value: string; label: string; swatch?: string }[] = [];
+  const knownType = Object.hasOwn(kinds, row.kind);
+  let options: { value: string; label: string; swatch?: string; disabled?: boolean }[] = [];
+  let selection = text;
   if (column === "kind") options = Object.values(kinds).map(label => ({ value: label, label }));
-  else if (column === "category_id") options = [
-    { value: "", label: "Uncategorized" },
-    ...workspace.categories.filter(category => !category.archived && category.applicable_kind === row.kind)
-      .map(category => ({ value: category.name, label: category.name, swatch: category.color })),
-  ];
-  else if (column === "account_id" || column === "destination_account_id") {
+  else if (column === "category_id") {
+    if (knownType && row.kind !== "expense" && row.kind !== "income") {
+      return <Picker compact label={label + " (income and expenses only)"} options={[]} disabled/>;
+    }
+    selection = row.category_id ?? "";
+    options = [{ value: "", label: "Uncategorized" },
+      ...workspace.categories.filter(category => !category.archived && (!knownType || category.applicable_kind === row.kind))
+        .map(category => ({ value: category.id, label: knownType ? category.name : category.name + " · " + kinds[category.applicable_kind], swatch: category.color })),
+    ];
+  } else if (column === "account_id" || column === "destination_account_id") {
     const destination = column === "destination_account_id";
-    if (destination && !needsDestination(row.kind)) return <Picker compact label={label + " (transfers and investment movements only)"} options={[]} disabled/>;
+    if (destination && knownType && !needsDestination(row.kind)) return <Picker compact label={label + " (transfers and investment movements only)"} options={[]} disabled/>;
     const source = workspace.accounts.find(account => account.id === row.account_id);
-    options = editableAccounts(workspace, row.kind, destination)
+    const accounts = knownType ? editableAccounts(workspace, row.kind, destination) : workspace.accounts.filter(account => !account.archived);
+    options = accounts
       .filter(account => !destination || account.id !== row.account_id && (!source || accountCurrency(account) === accountCurrency(source)))
       .map(account => ({ value: account.name, label: account.name + " · " + accountCurrency(account) }));
-    return <Picker compact label={options.length ? label : label + " (no eligible accounts)"} options={options} value={text} onValueChange={choose} disabled={!options.length}/>;
+    if (!options.length) options = [{ value: "__unavailable__", label: "No eligible accounts for this row", disabled: true }];
   } else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
   else if (field?.field_type === "checkbox") options = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
-  return options.length ? <Picker compact label={label} options={options} value={text} onValueChange={choose}/> : null;
+  return options.length ? <Picker compact label={label} options={options} value={selection} onValueChange={choose}/> : null;
 }
 function CustomInput({ definition, value, set, invalid, prior }: {
   definition: Definition; value: string | boolean | undefined; set: (value: string | boolean) => void; invalid?: boolean; prior?: boolean;
@@ -138,6 +147,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const [bulk, setBulk] = useState(!!initialBulk);
   const makeRow = () => ({ ...make(), occurred_on: "", kind: "", account_id: "", destination_account_id: null });
   const [rows, setRows] = useState<EntryDraft[]>(() => [makeRow()]);
+  const [editingAmount, setEditingAmount] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ row: string; anchor: number; columns: number[] } | null>(null);
   const [fill, setFill] = useState<{ start: number; end: number; columns: number[] } | null>(null);
   const dragFill = useRef<typeof fill>(null);
@@ -185,13 +195,39 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     const field = fieldById.get(key);
     if (field) {
       const checkbox = field.field_type === "checkbox";
-      const next = checkbox ? /^(true|yes|1|checked|x)$/i.test(value.trim()) : value;
+      const next = checkbox && value.trim() ? /^(true|yes|1|checked|x)$/i.test(value.trim()) : value;
       return { ...row, custom: { ...row.custom, [key]: next } };
     }
-    if (key === "kind") return changeKind(workspace, row, kindMatch(value));
+    if (key === "kind") {
+      const kind = kindMatch(value);
+      const category = row.category_id;
+      const typedCategory = category && !workspace.categories.some(item => item.id === category);
+      const category_id = typedCategory ? match(category, workspace.categories.filter(item => item.applicable_kind === kind)) : category;
+      return { ...row, kind, category_id };
+    }
     if (key === "account_id" || key === "destination_account_id") return { ...row, [key]: match(value, workspace.accounts) };
-    if (key === "category_id") return { ...row, category_id: match(value, workspace.categories.filter(category => category.applicable_kind === row.kind)) || null };
+    if (key === "category_id") {
+      const typed = value.trim();
+      const exact = workspace.categories.find(category => category.id === typed);
+      const choices = workspace.categories.filter(category => !category.archived
+        && (!Object.hasOwn(kinds, row.kind) || category.applicable_kind === row.kind)
+        && category.name.toLowerCase() === typed.toLowerCase());
+      return { ...row, category_id: (exact?.id ?? (choices.length === 1 ? choices[0].id : typed)) || null };
+    }
     return { ...row, [key]: value };
+  }
+  const usedRow = (row: EntryDraft) => columns.some(([key]) => cellText(row, key).trim());
+  const validateRow = (row: EntryDraft) => validateEntry(workspace, row, { requireCustomFields: false });
+  function updateCell(row: EntryDraft, key: string, value: string) {
+    setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item));
+    if (!rowErrors[row.id]) return;
+    const edited = assign(row, key, value);
+    const errors = usedRow(edited) ? validateRow(edited).errors : undefined;
+    const next = { ...rowErrors };
+    if (errors) next[row.id] = errors;
+    else delete next[row.id];
+    setRowErrors(next);
+    if (!Object.keys(next).length && problem === batchValidationMessage) setProblem("");
   }
   function paste(event: ClipboardEvent<HTMLInputElement>, rowIndex: number, columnIndex: number) {
     const value = event.clipboardData.getData("text/plain");
@@ -306,13 +342,13 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   async function saveRows(event: FormEvent) {
     event.preventDefault();
     if (working) return;
-    const filled = rows.filter(row => row.description.trim() || row.amount.trim() || row.notes.trim() || row.reimbursable.trim() || row.counterparty.trim() || Object.values(row.custom).some(Boolean));
+    const filled = rows.filter(usedRow);
     if (!filled.length) { setProblem("Enter at least one row to save."); return; }
-    const parsed = filled.map(row => [row.id, validateEntry(workspace, row)] as const);
+    const parsed = filled.map(row => [row.id, validateRow(row)] as const);
     const invalid = Object.fromEntries(parsed.flatMap(([id, result]) => result.errors ? [[id, result.errors]] : []));
     setRowErrors(invalid);
     if (Object.keys(invalid).length) {
-      setProblem("Review the highlighted cells. No rows were saved.");
+      setProblem(batchValidationMessage);
       requestAnimationFrame(() => document.querySelector<HTMLElement>('dialog [aria-invalid="true"]')?.focus());
       return;
     }
@@ -335,21 +371,26 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
             {columns.map(([key, label], col) => {
               const error = rowErrors[row.id]?.[key];
               const cellSelected = selected?.row === row.id && selected.columns.includes(col);
+              const monetary = key === "amount" || key === "reimbursable";
+              const amountId = row.id + "/" + key;
+              const text = cellText(row, key);
+              const rowAccount = monetary ? workspace.accounts.find(account => account.id === row.account_id) : undefined;
+              const display = monetary && editingAmount !== amountId ? formatMoneyInput(text, rowAccount ? accountCurrency(rowAccount) : currency) : text;
               return <td key={key} data-selected={cellSelected || undefined} data-fill={fill && fill.columns.includes(col) && index >= fill.start && index <= fill.end || undefined}>
               <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error}
-                aria-describedby={error ? "error-" + index + "-" + col : undefined} value={cellText(row, key)}
-                inputMode={key === "amount" || key === "reimbursable" ? "decimal" : undefined}
-                onChange={event => { const value = event.target.value; setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item)); }}
+                aria-describedby={error ? "error-" + index + "-" + col : undefined} value={display} required={requiredColumns.has(key)}
+                inputMode={monetary ? "decimal" : undefined} onFocus={monetary ? () => setEditingAmount(amountId) : undefined}
+                onChange={event => updateCell(row, key, event.target.value)}
                 onBlur={event => {
+                  if (monetary) { setEditingAmount(null); return; }
                   const value = event.target.value;
-                  const next = (key === "amount" || key === "reimbursable") && workspace.accounts.some(account => account.id === row.account_id) ? formatMoneyInput(value, currencyForAccount(workspace, row.account_id))
-                    : fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
-                  if (next !== value) setRows(current => current.map(item => item.id === row.id ? assign(item, key, next) : item));
+                  const next = fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
+                  if (next !== value) updateCell(row, key, next);
                 }}
                 onClick={event => selectCell(event, row.id, col)} onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
               <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={cellText(row, key)}
                 label={`Choose ${label} for row ${index + 1}`}
-                choose={value => setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item))}/>
+                choose={value => updateCell(row, key, value)}/>
               {index < rows.length - 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>

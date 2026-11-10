@@ -224,6 +224,19 @@ test("the form distinguishes partial, full and non-reimbursable expenses", () =>
   assert.deepEqual([ordinary.reimbursable_minor, ordinary.counterparty], [0, ""]);
 });
 
+test("spreadsheet validation requires the five core fields and allows blank custom fields", () => {
+  const workspace = setup();
+  workspace.field_definitions = [{ id: "ref", label: "Reference", field_type: "text", options: [], required: true, position: 0, archived: false }];
+  const draft = draftFrom(entry("batch", "expense", 35_000));
+  assert.ok(validateEntry(workspace, draft, { requireCustomFields: false }).entry);
+  assert.match(validateEntry(workspace, draft).errors.ref, /Complete/);
+  for (const key of ["occurred_on", "kind", "description", "amount", "account_id"]) {
+    const result = validateEntry(workspace, { ...draft, [key]: "" }, { requireCustomFields: false });
+    assert.ok(result.errors[key], key);
+  }
+  assert.ok(validateEntry(workspace, { ...draft, kind: "transfer" }, { requireCustomFields: false }).errors.destination_account_id);
+});
+
 test("the assistant extracts Indonesian named dates and edits a draft without guessing between accounts", () => {
   const workspace = setup();
   workspace.accounts[0].name = "BCA";
