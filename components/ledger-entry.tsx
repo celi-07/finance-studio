@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
-import { CircleAlert, Plus, Trash2 } from "lucide-react";
+import { useCallback, useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { ChevronDown, CircleAlert, Plus, Trash2 } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
 import {
-  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, workspaceForCurrency,
-  type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
+  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, validateFormEntry, workspaceForCurrency,
+  type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type ReimbursementMode, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
@@ -13,6 +14,7 @@ type Props = {
   workspace: Workspace; month: string; currency: Currency; original?: Entry; kind?: Kind; preset?: string; initialBulk?: boolean;
   onSave: (entries: Entry[]) => Promise<void>; onDelete?: (entry: Entry) => void; onClose: () => void;
 };
+const maxRows = 250;
 function kindMatch(value: string) {
   const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
   return Object.hasOwn(kinds, normalized) ? normalized : value.trim();
@@ -39,10 +41,12 @@ function SpreadsheetChoice({ workspace, row, column, field, text, label, choose 
   ];
   else if (column === "account_id" || column === "destination_account_id") {
     const destination = column === "destination_account_id";
-    if (destination && !needsDestination(row.kind)) return null;
+    if (destination && !needsDestination(row.kind)) return <Picker compact label={label + " (transfers and investment movements only)"} options={[]} disabled/>;
+    const source = workspace.accounts.find(account => account.id === row.account_id);
     options = editableAccounts(workspace, row.kind, destination)
-      .filter(account => !destination || account.id !== row.account_id && (!row.account_id || accountCurrency(account) === currencyForAccount(workspace, row.account_id)))
+      .filter(account => !destination || account.id !== row.account_id && (!source || accountCurrency(account) === accountCurrency(source)))
       .map(account => ({ value: account.name, label: account.name + " · " + accountCurrency(account) }));
+    return <Picker compact label={options.length ? label : label + " (no eligible accounts)"} options={options} value={text} onValueChange={choose} disabled={!options.length}/>;
   } else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
   else if (field?.field_type === "checkbox") options = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
   return options.length ? <Picker compact label={label} options={options} value={text} onValueChange={choose}/> : null;
@@ -65,7 +69,7 @@ function CustomInput({ definition, value, set, invalid, prior }: {
 
 export function EntryFields({ workspace, draft, setDraft, currency, original, errors, claim, setClaim, lockCurrency }: {
   workspace: Workspace; draft: EntryDraft; setDraft: (update: (draft: EntryDraft) => EntryDraft) => void;
-  currency: Currency; original?: Entry; errors: Record<string, string>; claim: boolean; setClaim: (claim: boolean) => void; lockCurrency?: boolean;
+  currency: Currency; original?: Entry; errors: Record<string, string>; claim: ReimbursementMode; setClaim: (claim: ReimbursementMode) => void; lockCurrency?: boolean;
 }) {
   const fields = activeFields(workspace);
   const entryCurrency = draft.account_id ? currencyForAccount(workspace, draft.account_id) : currency;
@@ -99,9 +103,17 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
             onValueChange={id => set("category_id", id || null)}
             options={[{ value: "", label: "Uncategorized" }, ...activeCategories.map(category => ({ value: category.id, label: category.name, swatch: category.color }))]}/>
         </Field>}
-        {draft.kind === "expense" && <label className="checkbox-field full"><input type="checkbox" checked={claim} onChange={event => setClaim(event.target.checked)} /> Part of this expense will be reimbursed</label>}
-        {draft.kind === "expense" && claim && <>
-          <Field label={`Reimbursable amount (${unit})`} error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onBlur={() => set("reimbursable", formatMoneyInput(draft.reimbursable, entryCurrency))} onChange={event => set("reimbursable", event.target.value)} /></Field>
+        {draft.kind === "expense" && <fieldset className="reimbursement-choice full"><legend>Reimbursement</legend>
+          {(["none", "partial", "full"] as const).map((value, index) => <label key={value}>
+            <input type="radio" value={value} checked={claim === value} onChange={() => setClaim(value)} name="reimbursement-mode"/>
+            <span>{["None", "Partial", "Full"][index]}</span>
+          </label>)}
+        </fieldset>}
+        {draft.kind === "expense" && claim !== "none" && <>
+          <Field label={`Reimbursable amount (${unit})`} error={errors.reimbursable} hint={claim === "full" ? "Matches the full expense amount." : undefined}>
+            <input value={claim === "full" ? draft.amount : draft.reimbursable} readOnly={claim === "full"} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0"
+              onBlur={() => { if (claim === "partial") set("reimbursable", formatMoneyInput(draft.reimbursable, entryCurrency)); }} onChange={event => set("reimbursable", event.target.value)}/>
+          </Field>
           <Field label="Owed by" error={errors.counterparty}><input value={draft.counterparty} aria-invalid={!!errors.counterparty} onChange={event => set("counterparty", event.target.value)} /></Field>
           <Field label="Due date (optional)" error={errors.due_on}><DatePicker label="Due date" value={draft.due_on ?? ""} invalid={!!errors.due_on} onChange={date => set("due_on", date || null)}/></Field>
         </>}
@@ -124,16 +136,23 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const originalCurrency = original ? currencyForAccount(workspace, original.account_id) : currency;
   const [draft, setDraft] = useState(() => original ? draftFrom(original, originalCurrency) : make());
   const [bulk, setBulk] = useState(!!initialBulk);
-  const makeRow = () => ({ ...make(), account_id: "", destination_account_id: null });
-  const [rows, setRows] = useState<EntryDraft[]>(() => Array.from({ length: 5 }, makeRow));
-  const [fill, setFill] = useState<{ start: number; end: number; column: number } | null>(null);
+  const makeRow = () => ({ ...make(), occurred_on: "", kind: "", account_id: "", destination_account_id: null });
+  const [rows, setRows] = useState<EntryDraft[]>(() => [makeRow()]);
+  const [selected, setSelected] = useState<{ row: string; anchor: number; columns: number[] } | null>(null);
+  const [fill, setFill] = useState<{ start: number; end: number; columns: number[] } | null>(null);
   const dragFill = useRef<typeof fill>(null);
   const grid = useRef<HTMLDivElement>(null);
+  const [dialog, setDialog] = useState<HTMLDialogElement | null>(null);
+  const bindGrid = useCallback((node: HTMLDivElement | null) => {
+    grid.current = node;
+    setDialog(node?.closest("dialog") ?? null);
+  }, []);
   const [rowErrors, setRowErrors] = useState<Record<string, Record<string, string>>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState("");
   const [working, setWorking] = useState(false);
-  const [claim, setClaim] = useState(!!original?.reimbursable_minor);
+  const [claim, setClaim] = useState<ReimbursementMode>(() => original?.reimbursable_minor
+    ? original.reimbursable_minor === original.amount_minor ? "full" : "partial" : "none");
   const fields = activeFields(workspace);
   const earlyRows = rows.filter(row => (row.description.trim() || row.amount.trim()) && historicalAccounts(workspace, row).length).length;
   const fixedColumns = [
@@ -181,7 +200,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     const pasted = value.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n").map(line => line.split("\t"));
     const hasHeader = columnIndex === 0 && /^(date|occurred_on)$/i.test(pasted[0]?.[0]?.trim() ?? "") && /^(type|kind)$/i.test(pasted[0]?.[1]?.trim() ?? "");
     if (hasHeader) pasted.shift();
-    if (rowIndex + pasted.length > 250) { setProblem("Paste up to 250 rows at a time."); return; }
+    if (rowIndex + pasted.length > maxRows) { setProblem("Paste up to 250 rows at a time."); return; }
     if (pasted.some(line => line.length + columnIndex > columns.length)) { setProblem("The pasted cells exceed the available columns. Start at the matching first column."); return; }
     setProblem(""); setRowErrors({});
     setRows(current => {
@@ -195,12 +214,28 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       return next;
     });
   }
-  function fillDown(start: number, end: number, column: number) {
+  function selectCell(event: MouseEvent<HTMLInputElement>, row: string, column: number) {
+    const range = event.shiftKey;
+    const toggle = event.ctrlKey || event.metaKey;
+    setSelected(current => {
+      if (!current || current.row !== row || (!range && !toggle)) return { row, anchor: column, columns: [column] };
+      if (range) {
+        const first = Math.min(current.anchor, column);
+        return { ...current, columns: Array.from({ length: Math.abs(current.anchor - column) + 1 }, (_, index) => first + index) };
+      }
+      const next = current.columns.includes(column) ? current.columns.filter(value => value !== column) : [...current.columns, column];
+      return next.length ? { row, anchor: next.includes(column) ? column : next.at(-1)!, columns: next } : null;
+    });
+  }
+  function fillDown(start: number, end: number, selectedColumns: number[]) {
     if (end <= start) return;
-    const key = columns[column][0];
+    const keys = selectedColumns.toSorted((a, b) => a - b).map(column => columns[column][0]);
     setRows(current => {
-      const value = cellText(current[start], key);
-      return current.map((row, index) => index > start && index <= end ? assign(row, key, value) : row);
+      const source = current[start];
+      if (!source) return current;
+      const cells = keys.map(key => [key, cellText(source, key)] as const);
+      return current.map((row, index) => index > start && index <= end
+        ? cells.reduce((next, [key, value]) => assign(next, key, value), row) : row);
     });
     setRowErrors({});
   }
@@ -208,7 +243,8 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     if (working || event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragFill.current = { start, end: start, column };
+    const selectedColumns = selected?.row === rows[start].id && selected.columns.includes(column) ? selected.columns : [column];
+    dragFill.current = { start, end: start, columns: selectedColumns };
     setFill(dragFill.current);
   }
   function moveFill(event: PointerEvent<HTMLButtonElement>) {
@@ -227,20 +263,24 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     const selection = dragFill.current;
     dragFill.current = null;
     setFill(null);
-    if (selection && commit) fillDown(selection.start, selection.end, selection.column);
+    if (selection && commit) fillDown(selection.start, selection.end, selection.columns);
+  }
+  function addRows(count: number) {
+    setRows(current => [...current, ...Array.from({ length: Math.min(count, maxRows - current.length) }, makeRow)]);
   }
   function advance(event: KeyboardEvent<HTMLInputElement>, index: number, col: number) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d" && index > 0) {
       event.preventDefault();
-      fillDown(index - 1, index, col);
+      const selectedColumns = selected?.row === rows[index].id && selected.columns.includes(col) ? selected.columns : [col];
+      fillDown(index - 1, index, selectedColumns);
       return;
     }
     if (event.key !== "Enter") return;
     event.preventDefault();
     const next = document.querySelector<HTMLInputElement>('#cell-' + (index + 1) + '-' + col);
     if (next) next.focus();
-    else if (rows.length < 250) {
-      setRows(current => [...current, makeRow()]);
+    else if (rows.length < maxRows) {
+      addRows(1);
       requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#cell-' + (index + 1) + '-' + col)?.focus());
     }
   }
@@ -248,7 +288,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     event.preventDefault();
     if (working) return;
     setProblem("");
-    const result = validateEntry(workspace, claim ? draft : { ...draft, reimbursable: "", counterparty: "", due_on: null });
+    const result = validateFormEntry(workspace, draft, claim);
     setErrors(result.errors ?? {});
     if (!result.entry) {
       requestAnimationFrame(() => document.querySelector<HTMLElement>('dialog [aria-invalid="true"]')?.focus());
@@ -258,7 +298,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     setWorking(true);
     try {
       await onSave([result.entry]);
-      if (saveAnother) { setDraft(make()); setClaim(false); }
+      if (saveAnother) { setDraft(make()); setClaim("none"); }
       else onClose();
     } catch (error) { setProblem(error instanceof Error ? error.message : "The entry could not be saved."); }
     finally { setWorking(false); }
@@ -287,11 +327,15 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
-      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter amounts like 27,000.00 or 27.000,00 for IDR, and dates like 2026-11-07 or 07/11/2026. Drag a cell’s corner down to copy it, or press Ctrl+D in the cell below.</p></div>
-      <div className="grid-scroll" ref={grid} tabIndex={0} aria-label="Spreadsheet entry grid">
+      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026.</p>
+        <p>Add rows, then drag a cell’s corner to fill down. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from the row above.</p></div>
+      <div className="grid-scroll" ref={bindGrid} tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label, hint]) => <th key={key} scope="col" className={"col-" + key} title={hint} aria-description={hint}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}><th scope="row">{index + 1}</th>
-            {columns.map(([key, label], col) => { const error = rowErrors[row.id]?.[key]; return <td key={key} data-fill={fill && fill.column === col && index >= fill.start && index <= fill.end || undefined}>
+            {columns.map(([key, label], col) => {
+              const error = rowErrors[row.id]?.[key];
+              const cellSelected = selected?.row === row.id && selected.columns.includes(col);
+              return <td key={key} data-selected={cellSelected || undefined} data-fill={fill && fill.columns.includes(col) && index >= fill.start && index <= fill.end || undefined}>
               <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error}
                 aria-describedby={error ? "error-" + index + "-" + col : undefined} value={cellText(row, key)}
                 inputMode={key === "amount" || key === "reimbursable" ? "decimal" : undefined}
@@ -302,11 +346,11 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
                     : fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
                   if (next !== value) setRows(current => current.map(item => item.id === row.id ? assign(item, key, next) : item));
                 }}
-                onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
+                onClick={event => selectCell(event, row.id, col)} onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
               <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={cellText(row, key)}
                 label={`Choose ${label} for row ${index + 1}`}
                 choose={value => setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item))}/>
-              {index < rows.length - 1 && cellText(row, key) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
+              {index < rows.length - 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>
               {error && <small className="field-error" id={"error-" + index + "-" + col}>{error}</small>}
@@ -316,7 +360,21 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
         </table>
       </div>
       {earlyRows > 0 && <p className="history-note" role="status">{earlyRows} {earlyRows === 1 ? "row predates" : "rows predate"} an account’s tracking date. These rows appear in reports. Earlier amounts are excluded from the affected balances.</p>}
-      <div className="bulk-add"><button type="button" className="button quiet" onClick={() => setRows(current => [...current, makeRow()])} disabled={rows.length >= 250}><Plus size={16} /> Add row</button></div>
+      <div className="bulk-add">
+        <div className="row-actions" role="group" aria-label="Add spreadsheet rows">
+          <button type="button" className="button quiet" onClick={() => addRows(1)} disabled={rows.length >= maxRows || working}><Plus size={16}/> Add row</button>
+          <DropdownMenu.Root modal={false}>
+            <DropdownMenu.Trigger className="button quiet row-actions-menu" type="button" aria-label="Add multiple rows" disabled={rows.length > maxRows - 2 || working}><ChevronDown size={16} aria-hidden="true"/></DropdownMenu.Trigger>
+            <DropdownMenu.Portal container={dialog ?? undefined}>
+              <DropdownMenu.Content className="picker-menu row-menu" sideOffset={6} align="end" collisionPadding={10}>
+                {[2, 5, 10, 25].map(count => <DropdownMenu.Item className="picker-option" key={count}
+                  disabled={rows.length + count > maxRows} onSelect={() => addRows(count)}>Add {count} rows</DropdownMenu.Item>)}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
+        {selected && selected.columns.length > 1 && <span className="sheet-selection-count" role="status">{selected.columns.length} cells selected</span>}
+      </div>
       {problem && <p className="form-message error" role="alert"><CircleAlert size={17} />{problem}</p>}
       <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose} disabled={working}>Cancel</button><button className="button primary" disabled={working}>{working ? "Saving…" : "Save all entries"}</button></div>
     </form> : <form className="entry-mode" key="form" onSubmit={saveForm} noValidate>

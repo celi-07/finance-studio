@@ -173,6 +173,23 @@ export function draftFrom(entry: Entry, currency: Currency = defaultCurrency): E
   };
 }
 type Validation = { entry: Entry; errors?: undefined } | { entry?: undefined; errors: Record<string, string> };
+export type ReimbursementMode = "none" | "partial" | "full";
+
+export function validateFormEntry(workspace: Workspace, draft: EntryDraft, mode: ReimbursementMode): Validation {
+  if (draft.kind !== "expense" || mode === "none") {
+    return validateEntry(workspace, { ...draft, reimbursable: "", counterparty: "", due_on: null });
+  }
+  if (mode === "full") return validateEntry(workspace, { ...draft, reimbursable: draft.amount });
+  const result = validateEntry(workspace, draft);
+  const currency = currencyForAccount(workspace, draft.account_id);
+  const amount = parseMoney(draft.amount, currency);
+  const claim = parseMoney(draft.reimbursable, currency);
+  if (!draft.reimbursable.trim() || claim === 0 || (claim !== null && amount !== null && claim === amount)) {
+    return { errors: { ...result.errors, reimbursable: "Enter an amount greater than zero and less than the expense." } };
+  }
+  return result;
+}
+
 export function validateEntry(workspace: Workspace, draft: EntryDraft): Validation {
   const errors: Record<string, string> = {};
   const existing = workspace.transactions.find(entry => entry.id === draft.id);
