@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import {
   ArrowLeftRight, Banknote, BanknoteArrowDown, BriefcaseBusiness, ChartNoAxesCombined, ChevronRight, CircleDollarSign,
   HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
 } from "lucide-react";
-import { accountName, activityLabel, activityMoney, currencyForAccount, dayLabel, type AccountKind, type Activity, type Workspace } from "@/lib/ledger";
+import { accountName, activityLabel, activityMoney, currencyForAccount, dayLabel, formatMoneyInput, type AccountKind, type Activity, type Currency, type Workspace } from "@/lib/ledger";
 
 export const accountIcons: Record<AccountKind, LucideIcon> = { bank: Landmark, wallet: WalletMinimal, cash: Banknote, investment: ChartNoAxesCombined };
 export const accountTones: Record<AccountKind, string> = { bank: "blue", wallet: "amber", cash: "mint", investment: "orchid" };
@@ -23,8 +23,17 @@ const categoryIcons = new Map<string, LucideIcon>([
 ]);
 const categoryTones = new Map([
   ["green", "mint"], ["blue", "blue"], ["amber", "amber"], ["violet", "orchid"], ["rose", "coral"],
+  ["teal", "mint"], ["cyan", "blue"], ["indigo", "orchid"], ["plum", "orchid"],
+  ["peach", "coral"], ["lime", "mint"], ["slate", "blue"], ["gold", "amber"],
 ]);
-export const palette = ["green", "blue", "amber", "violet", "rose"];
+export const palette = ["green", "blue", "amber", "violet", "rose", "teal", "cyan", "indigo", "plum", "peach", "lime", "slate", "gold"];
+
+export function MoneyInput({ currency, ...props }: Omit<ComponentProps<"input">, "type" | "inputMode" | "onBlur"> & { currency: Currency }) {
+  return <input {...props} inputMode="decimal" onBlur={event => {
+    const input = event.currentTarget;
+    input.value = formatMoneyInput(input.value, currency);
+  }}/>;
+}
 
 export function Modal({ title, subtitle, onClose, children, wide, locked }: {
   title: string; subtitle?: string; onClose: () => void; children: ReactNode; wide?: boolean; locked?: boolean;

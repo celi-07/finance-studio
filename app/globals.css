@@ -187,6 +187,14 @@ strong { font-weight: 660; }
 .category-dot.amber, .bar-track .amber { background: #c99a57; }
 .category-dot.violet, .bar-track .violet { background: #9883c2; }
 .category-dot.rose, .bar-track .rose { background: #d98493; }
+.category-dot.teal, .bar-track .teal { background: #209d90; }
+.category-dot.cyan, .bar-track .cyan { background: #37adc5; }
+.category-dot.indigo, .bar-track .indigo { background: #6468c9; }
+.category-dot.plum, .bar-track .plum { background: #ae63a8; }
+.category-dot.peach, .bar-track .peach { background: #dc8468; }
+.category-dot.lime, .bar-track .lime { background: #8ea64e; }
+.category-dot.slate, .bar-track .slate { background: #7f91aa; }
+.category-dot.gold, .bar-track .gold { background: #d1ad46; }
 .account-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); }
 .account-card .glyph { width: 32px; height: 32px; }
 .account-card p, .investment-name p { color: var(--muted); font-size: .72rem; text-transform: capitalize; }
@@ -296,6 +304,9 @@ strong { font-weight: 660; }
 .auth-panel h1 { margin-top: 24px; font-size: 2rem; }
 .auth-panel > p { color: var(--muted); margin: 8px 0 12px; }
 .auth-panel form { display: grid; gap: 12px; margin: 16px 0 8px; }
+.auth-top { display: flex; align-items: center; gap: 12px; }
+.auth-links { display: grid; gap: 5px; margin-top: 8px; justify-items: start; }
+.auth-links > :first-child { justify-self: center; }
 .provider-sign-in { display: grid; justify-items: start; gap: 9px; margin-block: 16px; }
 .provider-sign-in button { display: block; background: transparent; padding: 0; border: 0; border-radius: 8px; }
 .provider-sign-in img { display: block; height: 44px; max-width: 100%; object-fit: contain; }
@@ -386,7 +397,10 @@ strong { font-weight: 660; }
 .settings-demo-actions { border-top: 1px solid var(--line); margin-top: 13px; padding-top: 9px; }
 .guide-steps { margin: 0; padding: 8px 24px 0 47px; }
 .guide-steps li { padding: 10px 4px; border-bottom: 1px solid var(--line); }
-.guide-steps summary { cursor: pointer; font-weight: 650; }
+.guide-steps summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; cursor: pointer; font-weight: 650; }
+.guide-steps summary::-webkit-details-marker, .quick-entry summary::-webkit-details-marker { display: none; }
+.guide-steps summary svg { color: var(--muted); }
+.guide-steps details[open] summary svg { rotate: 180deg; }
 .guide-steps p { color: var(--muted); margin-top: 5px; font-size: .88rem; }
 .metric > strong { display: block; width: fit-content; max-width: 100%; color: var(--semantic-ink); font-variant-numeric: tabular-nums; }
 .claim-group { margin-top: 19px; }
@@ -411,6 +425,56 @@ strong { font-weight: 660; }
   min-height: 44px; padding: 9px 4px; border: 0; border-top: 1px solid var(--line); color: var(--ink); background: transparent; text-align: start; }
 .combined-sheet-row:hover { background: var(--hover); }
 .combined-sheet-row > span { color: var(--muted); text-align: end; font-size: .82rem; }
+.planning-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 16px; }
+.panel.calendar-panel { --panel-tint: var(--wash-rose); }
+.panel.goals-panel { --panel-tint: var(--wash-mint); }
+.calendar-panel, .goals-panel { padding: clamp(12px, 2vw, 22px); min-width: 0; }
+.activity-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-top: 13px; }
+.calendar-weekday { text-align: center; color: var(--muted); font-size: .69rem; }
+.calendar-day { border: 1px solid var(--line); border-radius: 10px; min-height: 49px; min-width: 0; padding: 3px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: var(--ink); background: var(--surface); }
+.calendar-day[data-activity] { background: linear-gradient(145deg, var(--activity-wash), var(--surface)); }
+.calendar-day[data-activity=spending] { --activity-wash: var(--wash-rose); }
+.calendar-day[data-activity=income] { --activity-wash: var(--wash-mint); }
+.calendar-day[data-activity=other] { --activity-wash: var(--wash-orchid); }
+.calendar-day[aria-current=date] > span { font-weight: 800; text-decoration: underline; }
+.calendar-day[aria-pressed=true] { border-color: var(--tone-coral); box-shadow: inset 0 0 0 1px var(--tone-coral); }
+.calendar-day small { display: grid; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1.1; font-size: clamp(.57rem, 1vw, .72rem); }
+.calendar-day b.calendar-income { color: var(--positive); }
+.calendar-day b.calendar-spending { color: var(--tone-coral); }
+.calendar-detail { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 12px; }
+.calendar-detail h3 { display: flex; align-items: center; gap: 7px; }
+.calendar-detail > p, .goal-empty { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+.reserve-grid, .goal-grid { display: grid; gap: 9px; }
+.reserve-summary { border-radius: 14px; background: color-mix(in srgb, var(--wash-mint) 54%, var(--surface)); border: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 7px; margin: 0; }
+.reserve-summary div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: .82rem; }
+.reserve-summary dt { color: var(--muted); }
+.reserve-summary dd { margin: 0; text-align: end; font-variant-numeric: tabular-nums; font-weight: 670; }
+.goal-grid { margin-top: 12px; }
+.goal-card { background: linear-gradient(130deg, var(--surface), color-mix(in srgb, var(--wash-orchid) 34%, var(--surface))); color: var(--ink); text-align: start; border: 1px solid var(--line); border-radius: 15px; padding: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; }
+.goal-card:hover { border-color: var(--tone-orchid); }
+.goal-title, .goal-amount { display: grid; gap: 2px; }
+.goal-title small, .goal-amount small { color: var(--muted); }
+.goal-ring { display: grid; place-items: center; width: 50px; height: 50px; border-radius: 50%; background: radial-gradient(closest-side, var(--surface) 78%, transparent 80%), conic-gradient(var(--tone-orchid) var(--goal-progress), var(--line) 0); font-size: .7rem; font-weight: 700; }
+.goal-amount { grid-column: span 2; }
+.goal-empty { display: flex; gap: 7px; align-items: center; }
+.quick-entry { padding: 12px; margin-bottom: 13px; border-radius: 14px; border: 1px solid var(--line); background: linear-gradient(135deg, var(--wash-orchid), var(--surface)); }
+.quick-entry summary { display: flex; align-items: center; gap: 9px; cursor: pointer; font-weight: 680; list-style: none; }
+.quick-entry .field { margin-top: 11px; }
+.quick-entry p { margin-block: 7px; font-size: .82rem; }
+.history-note { margin-top: 12px; padding: 10px 13px; border-inline-start: 3px solid var(--tone-amber); border-radius: 8px; background: var(--wash-peach); color: var(--ink); font-size: .86rem; }
+.day-popover { width: 316px; }
+.day-popover .rdp-root { --rdp-accent-color: var(--tone-orchid); --rdp-accent-background-color: var(--wash-orchid); --rdp-day-width: clamp(31px, 10vw, 39px); --rdp-day-height: 36px; --rdp-day_button-width: var(--rdp-day-width); --rdp-day_button-height: var(--rdp-day-height); }
+.day-popover .rdp-months { margin-inline: auto; width: fit-content; }
+.day-popover .rdp-selected .rdp-day_button { background: var(--wash-orchid); }
+.day-popover .rdp-day_button:hover { background: var(--hover); }
+.day-popover .rdp-dropdown_root { color: var(--ink); }
+.day-popover .rdp-dropdown { color: var(--ink); background: var(--surface); }
+@media (max-width: 1000px) { .planning-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: no-preference) {
+  .calendar-day, .goal-card { transition: background-color 180ms ease, border-color 180ms ease, translate 180ms var(--ease-out); }
+  .calendar-day:hover, .goal-card:hover { translate: 0 -2px; }
+  .guide-steps summary svg { transition: rotate 200ms var(--ease-out); }
+}
 .investment-card { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(210px,1.2fr); align-items: center; gap: 12px 20px; }
 .investment-estimate > span { color: var(--muted); font-size: .78rem; }
 .investment-estimate strong { margin-top: 2px; font-variant-numeric: tabular-nums; }

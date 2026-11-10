@@ -1,4 +1,4 @@
-export type CloudConfig = { url: string; key: string; authMode?: "transition" | "oauth" };
+export type CloudConfig = { url: string; key: string; authMode?: "google" | "transition" | "oauth" };
 
 function isPublicKey(key: string) {
   if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(key)) return true;
@@ -30,5 +30,5 @@ export function configuredCloud(env: Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPA
     ? readCloudConfig(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY)
     : readCloudConfig(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
   const authMode = (env.FINANCE_AUTH_MODE ?? process.env.FINANCE_AUTH_MODE)?.trim();
-  return cloud && (authMode === "transition" || authMode === "oauth") ? { ...cloud, authMode } : cloud;
+  return cloud && (authMode === "google" || authMode === "transition" || authMode === "oauth") ? { ...cloud, authMode } : cloud;
 }

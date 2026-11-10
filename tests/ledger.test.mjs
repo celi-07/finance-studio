@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, claims, draftFrom, emptyWorkspace, money, monthly, parseDate, parseMoney, validateEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, validateEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 
 const month = "2025-02";
@@ -134,7 +134,7 @@ test("investment value combines the last valuation and later movements once", ()
   assert.equal(report.totalAssets, 101_000);
 });
 
-test("editing keeps archived field values and validates account opening date and existing payments", () => {
+test("editing keeps archived field values and preserves existing payments", () => {
   const workspace = setup();
   workspace.transactions = [entry("lunch", "expense", 12_000, { reimbursable_minor: 7_000, counterparty: "Group", custom_values: { old: "saved" } })];
   workspace.reimbursement_receipts = [{ id: "p", expense_id: "lunch", account_id: "bank", received_on: "2025-02-04", amount_minor: 3_000 }];
@@ -142,5 +142,28 @@ test("editing keeps archived field values and validates account opening date and
   const draft = { ...workspace.transactions[0], amount: "120", reimbursable: "70", custom: {} };
   assert.deepEqual(validateEntry(workspace, draft).entry.custom_values, { old: "saved" });
   assert.match(validateEntry(workspace, { ...draft, reimbursable: "20" }).errors.reimbursable, /payments/);
-  assert.match(validateEntry(workspace, { ...draft, occurred_on: "2024-12-01" }).errors.account_id, /open/);
+  assert.match(validateEntry(workspace, { ...draft, occurred_on: "2025-02-05" }).errors.occurred_on, /linked payment/);
+});
+
+test("historical entries remain in reports while tracked balances start at each account's tracking date", () => {
+  const workspace = setup();
+  workspace.accounts[0].opening_date = "2025-02-10";
+  const early = entry("historical", "expense", 12_000);
+  const transfer = entry("between-openings", "transfer", 5_000, { destination_account_id: "wallet" });
+  workspace.transactions = [early, transfer, entry("tracked", "expense", 2_000, { occurred_on: "2025-02-10" })];
+  assert.ok(validateEntry(workspace, draftFrom(early)).entry);
+  assert.deepEqual(historicalAccounts(workspace, draftFrom(transfer)).map(row => row.id), ["bank"]);
+  const report = monthly(workspace, month);
+  assert.equal(report.spending, 14_000);
+  assert.equal(report.accounts.find(row => row.account.id === "bank").value, 98_000);
+  assert.equal(report.accounts.find(row => row.account.id === "wallet").value, 5_000);
+});
+
+test("formats money fields with comma grouping while preserving legacy IDR entry and exact minor units", () => {
+  assert.equal(formatMoneyInput("1.234,50", "IDR"), "1,234.50");
+  assert.equal(parseMoney("1,234.50", "IDR"), 123450);
+  assert.equal(formatMoneyInput("125000", "JPY"), "125,000");
+  assert.equal(formatMoneyInput("90071992547409.91", "USD"), "90,071,992,547,409.91");
+  assert.equal(formatMoneyInput("1.003", "KWD"), "1.003");
+  assert.equal(groupNumber("-123456.09"), "-123,456.09");
 });

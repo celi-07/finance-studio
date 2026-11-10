@@ -49,7 +49,7 @@ export function ProviderSignIn({ cloud }: { cloud: CloudConfig }) {
   }
   return <div className="provider-sign-in">
     <button type="button" aria-label="Sign in with Google" onClick={() => void connect("google")} disabled={pending !== null}><img src="/google-sign-in.png" alt=""/></button>
-    <button type="button" aria-label="Sign in with Apple" onClick={() => void connect("apple")} disabled={pending !== null}><img src="/apple-sign-in.png" alt=""/></button>
+    {cloud.authMode !== "google" && <button type="button" aria-label="Sign in with Apple" onClick={() => void connect("apple")} disabled={pending !== null}><img src="/apple-sign-in.png" alt=""/></button>}
     {pending && <p role="status">Opening {pending === "google" ? "Google" : "Apple"}…</p>}
     {problem && <p role="alert" className="form-message error">{problem}</p>}
   </div>;

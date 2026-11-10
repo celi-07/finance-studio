@@ -11,7 +11,7 @@ Leave the Supabase settings blank to use the demo. The sample entries are fictio
 ## Connect Supabase
 
 1. Create a [Supabase project](https://supabase.com/dashboard/new).
-2. In that project's **SQL Editor**, apply the migrations in order on a fresh database. Apply only pending migrations on an existing installation. [001 · Initial schema](supabase/migrations/001_initial.sql) · [002 · Account currencies](supabase/migrations/002_account_currencies.sql) · [003 · Finance sheets](supabase/migrations/003_finance_sheets.sql). Existing accounts and records appear under Personal.
+2. In that project's **SQL Editor**, apply the migrations in order on a fresh database. Apply only pending migrations on an existing installation. [001 · Initial schema](supabase/migrations/001_initial.sql) · [002 · Account currencies](supabase/migrations/002_account_currencies.sql) · [003 · Finance sheets](supabase/migrations/003_finance_sheets.sql) · [004 · Historical entries and savings goals](supabase/migrations/004_history_and_savings_goals.sql). Apply 004 before deploying this release against your Supabase project.
 3. In **Authentication → URL Configuration**, set **Site URL** to your final site origin. Add the exact site root to the redirect allowlist. While email sign-in is active, also allow the recovery URL. This installation uses the following URLs.
    - **https://jason-finance-studio.convivialsorrel2.chatgpt.site/**
    - **https://jason-finance-studio.convivialsorrel2.chatgpt.site/?recover=1**
@@ -33,11 +33,21 @@ Private Site access and Finance Studio sign-in are separate. Database policies r
 
 Finance Studio uses a browser session that refreshes while valid. Google and Apple handle their own passwords and decide when to require verification. Sign out after using a shared browser. [Supabase sessions](https://supabase.com/docs/guides/auth/sessions)
 
+To launch Google alongside email before Apple is ready, enable **Google** in the connected Supabase project, set **FINANCE_AUTH_MODE=google** in your hosting settings, and redeploy. Add your exact production URL to the Supabase redirect allowlist. If you use a Google test project, add your account as a test user. After signing in, check that your existing sheets appear before retiring any sign-in method.
+
+## Brand verification emails
+
+1. In Supabase **Authentication → Email → SMTP Settings**, configure a transactional SMTP provider using a verified sender domain. Set the sender name to **Finance Studio** and use a mailbox on your domain, such as `accounts@your-domain.example`. Enter SMTP credentials in the dashboard. [Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp)
+2. In **Authentication → Email Templates → Confirm signup**, use the subject **Verify your Finance Studio email** and paste the [confirmation template](supabase/templates/confirm-signup.html). Replace **YOUR_PUBLIC_SITE_ORIGIN** with an HTTPS origin where **/email-logo.png** is publicly accessible. The template retains Supabase's verification link variable. [Email template variables](https://supabase.com/docs/guides/auth/auth-email-templates)
+3. Send a test registration to a mailbox you control. Confirm the sender name, logo and link appear as intended. For a branded link hostname, configure a custom auth domain separately.
+
 ## How totals work
 
 - In **Settings**, use **Add sheet** to keep records for a business, personal budget or investments separate. Each sheet has its own accounts, categories and custom fields. Use **All sheets** in Overview to see them together.
 - Choose an account currency when creating the account. Entry forms follow the selected account’s currency. Choose **All currencies** in Overview to see totals side by side, or select a currency to see its details and export a PDF. Transfers, investment movements and reimbursements link accounts in the same sheet and currency.
 - Account openings affect balances. Income and spending totals come from dated transactions.
+- Entries before an account's tracking date appear in monthly reports and the activity calendar. The entry does not change that account's tracked balance. For a transfer or investment movement, the rule is applied to each account independently.
+- Savings goals are allocations within a sheet and currency. **Available to spend** is today's tracked cash less the amounts set aside. A goal never changes your transaction history or bank balance. Update the set-aside amount as you save, and remove the goal to release that allocation.
 - Transfers between cash accounts leave aggregate cash unchanged. Investment contributions and withdrawals move value between cash and investment accounts.
 - Reimbursable expenses reduce cash by the amount paid. Personal spending is the share that belongs to you. Receipts add cash and reduce the open claim separately.
 - Investment estimates use the last manually entered end-of-day valuation plus later contributions minus later withdrawals. Until you enter a valuation, the contributed balance supplies the estimate.
@@ -46,3 +56,5 @@ Finance Studio uses a browser session that refreshes while valid. Google and App
 ## Spreadsheet entry
 
 Choose **Add entry → Spreadsheet** or use **Spreadsheet** on Transactions. Paste from Excel or Sheets into the first matching cell. Core columns are Date, Type, Description, Amount, Account and Category. The destination, reimbursement, notes and custom field columns follow. Use **YYYY-MM-DD** or **DD/MM/YYYY**, account and category names from the selected sheet, and each account’s currency for its amount. For example, enter **125.000,50** in IDR and **125,000.50** in USD. The whole batch stays open for correction when any row is invalid.
+
+To enter one transaction in plain language, choose **Add entry → Describe a transaction**. Try **Beli kopi Tuku 27rb via Blu** or **Received USD 500 via Dollar account yesterday**, using the name of an account on your sheet. The browser builds an editable draft using local rules. Review it and select **Save entry**.
