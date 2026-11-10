@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Select } from "@base-ui/react/select";
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
 import { Popover } from "radix-ui";
-import { monthLabel, shiftMonth } from "@/lib/ledger";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/style.css";
+import { dayLabel, monthLabel, shiftMonth, today } from "@/lib/ledger";
 
 type Option = { value: string; label: string; swatch?: string };
 type PickerProps = {
@@ -70,6 +72,50 @@ export function Picker({ label, options, value, defaultValue = "", onValueChange
 const firstMonth = "1900-01";
 const lastMonth = "2199-12";
 const monthNames = Array.from({ length: 12 }, (_, index) => monthLabel("2000-" + String(index + 1).padStart(2, "0")).replace(/ 2000$/, ""));
+
+const toCalendarDate = (iso: string) => {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+const fromCalendarDate = (date: Date) => [date.getFullYear(), date.getMonth() + 1, date.getDate()].map(part => String(part).padStart(2, "0")).join("-");
+
+export function DatePicker({ label, name, value, defaultValue = "", onChange, min, max, invalid, required }: {
+  label: string; name?: string; value?: string; defaultValue?: string; onChange?: (date: string) => void;
+  min?: string; max?: string; invalid?: boolean; required?: boolean;
+}) {
+  const [local, setLocal] = useState(defaultValue);
+  const [open, setOpen] = useState(false);
+  const [container, setContainer] = useState<HTMLDialogElement | null>(null);
+  const bind = useCallback((button: HTMLButtonElement | null) => setContainer(button?.closest("dialog") ?? null), []);
+  const selected = value ?? local;
+  const lower = toCalendarDate(min || "1900-01-01");
+  const upper = toCalendarDate(max || "2199-12-31");
+  const current = toCalendarDate(today());
+  const select = (date: string) => {
+    if (value === undefined) setLocal(date);
+    onChange?.(date);
+    setOpen(false);
+  };
+  return <Popover.Root open={open} onOpenChange={setOpen}>
+    {name && <input type="hidden" name={name} value={selected}/>}
+    <Popover.Trigger ref={bind} className="picker-trigger date-trigger" type="button" aria-label={label + (selected ? ", " + dayLabel(selected) : "")} aria-invalid={invalid}>
+      <CalendarDays size={16} className="picker-leading" aria-hidden="true"/>
+      <span className="picker-value">{selected ? dayLabel(selected) : "Choose a date"}</span>
+      <ChevronDown className="picker-chevron" size={15} aria-hidden="true"/>
+    </Popover.Trigger>
+    <Popover.Portal container={container ?? undefined}>
+      <Popover.Content className="month-popover day-popover" aria-label={label} align="start" sideOffset={8} collisionPadding={10}>
+        <DayPicker mode="single" required={false} autoFocus weekStartsOn={1}
+          captionLayout="dropdown" navLayout="after" startMonth={lower} endMonth={upper}
+          today={current} defaultMonth={selected ? toCalendarDate(selected) : current}
+          selected={selected ? toCalendarDate(selected) : undefined}
+          disabled={[{ before: lower }, { after: upper }]}
+          onSelect={(date, clicked) => select(fromCalendarDate(date ?? clicked))}/>
+        {!required && selected && <button type="button" className="button quiet" onClick={() => select("")}>Clear date</button>}
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>;
+}
 
 export function ReportingMonth({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [open, setOpen] = useState(false);

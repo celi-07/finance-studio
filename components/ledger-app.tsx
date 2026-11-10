@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { isAuthError } from "@supabase/supabase-js";
-import { ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
-import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, isCurrency, money, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Workspace } from "@/lib/ledger";
+import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal } from "lucide-react";
+import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, isCurrency, money, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type SavingsGoal, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
 import type { CloudConfig } from "@/lib/ledger-cloud-config";
@@ -14,6 +14,7 @@ import { Brand, Empty, Field, Modal } from "./ledger-ui";
 import { Picker, ReportingMonth } from "./ledger-picker";
 import { CombinedOverview, filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 import { FinanceWelcome, ProviderSignIn } from "./finance-welcome";
+import { ActivityCalendar, GoalDialog, SavingsGoals } from "./ledger-planning";
 
 const routes = {
   overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
@@ -27,7 +28,8 @@ const personalSheet = "personal";
 type Panel =
   | { type: "entry"; original?: Entry; kind?: Kind; preset?: string; bulk?: boolean }
   | { type: "receive"; id: string } | { type: "value"; id: string } | { type: "manage"; edit: Management }
-  | { type: "delete"; entry: Entry } | { type: "receipt"; row: Activity } | { type: "reset" } | { type: "guide" } | { type: "book"; book?: FinanceBook };
+  | { type: "delete"; entry: Entry } | { type: "receipt"; row: Activity } | { type: "reset" } | { type: "guide" } | { type: "book"; book?: FinanceBook }
+  | { type: "goal"; goal?: SavingsGoal } | { type: "delete-goal"; goal: SavingsGoal };
 type AuthMode = "sign-in" | "sign-up" | "reset" | "recover";
 
 function authMessage(error: unknown, mode: AuthMode) {
@@ -83,19 +85,22 @@ function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { clo
     finally { setWorking(false); }
   }
   function switchTo(next: AuthMode) { setMode(next); setMessage(""); setError(""); }
-  return <main className="auth-screen"><section className="panel auth-panel"><Brand/><h1>{cloud.authMode === "oauth" ? "Sign in to Finance Studio" : title}</h1><p>{cloud.authMode === "oauth" ? "Use your Google or Apple account to get started." : current === "sign-up" ? "Use your email to create an account." : "Manage your finances in one place."}</p>
+  return <main className="auth-screen"><section className="panel auth-panel"><div className="auth-top">
+    {current !== "recover" && <button type="button" className="icon-button" aria-label={current === "sign-in" ? "Back to home" : "Back to sign in"}
+      onClick={current === "sign-in" ? onBack : () => switchTo("sign-in")}><ArrowLeft size={20} aria-hidden="true"/></button>}<Brand/></div>
+    <h1>{title}</h1><p>{cloud.authMode === "oauth" ? "Use your Google or Apple account to get started." : current === "sign-up" ? "Use your email to create an account." : "Manage your finances in one place."}</p>
     {returnError && <p className="form-message error" role="alert">Sign-in was interrupted. Choose a sign-in method to try again.</p>}
-    {(cloud.authMode === "oauth" || cloud.authMode === "transition" && current === "sign-in") && <ProviderSignIn cloud={cloud}/>}
+    {cloud.authMode && current === "sign-in" && <ProviderSignIn cloud={cloud}/>}
     {cloud.authMode !== "oauth" && <form onSubmit={submit}>
       {current !== "recover" && <Field label="Email"><input required name="email" type="email" autoComplete={current === "reset" ? "email" : "username"}/></Field>}
       {current !== "reset" && <Field label={current === "recover" ? "New password" : "Password"}><input required name="password" type="password" minLength={current === "sign-in" ? undefined : 8} autoComplete={current === "sign-in" ? "current-password" : "new-password"}/></Field>}
       {error && <p className="form-message error" role="alert">{error}</p>}{message && <p className="form-message success" role="status">{message}</p>}
       <button className="button primary" disabled={working}>{working ? "Working…" : label}</button>
     </form>}
-    {cloud.authMode !== "oauth" && current !== "recover" && <div className="button-line">
-      {current === "sign-in" ? <><button className="button quiet" disabled={working} onClick={() => switchTo("sign-up")}>Create account</button><button className="button quiet" disabled={working} onClick={() => switchTo("reset")}>Forgot password?</button></> : <button className="button quiet" disabled={working} onClick={() => switchTo("sign-in")}>Back to sign in</button>}
+    {cloud.authMode !== "oauth" && current === "sign-in" && <div className="auth-links">
+      <button className="button quiet" disabled={working} onClick={() => switchTo("reset")}>Forgot password?</button>
+      <button className="button quiet" disabled={working} onClick={() => switchTo("sign-up")}>Create account</button>
     </div>}
-    {current !== "recover" && <button type="button" className="button quiet" onClick={onBack}>Back to home</button>}
   </section></main>;
 }
 
@@ -120,6 +125,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const showingAllCurrencies = route === "overview" && allCurrencies && availableCurrencies.length > 1;
   const combinedSheets = showingAllSheets && sheets.length > 1;
   const reportData = workspaceForCurrency(reportBase, currency);
+  const cashCurrencies = Array.from(new Set(bookData.accounts.filter(account => account.kind !== "investment").map(accountCurrency)));
+  const goalCurrencies = Array.from(new Set([...availableCurrencies, ...reportBase.savings_goals.map(goal => goal.currency)])).sort();
   const dataRef = useRef(data);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
@@ -210,6 +217,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     setPanel({ type: "entry", kind, preset: investment, bulk });
   }
   function openActivity(row: Activity) {
+    const sourceSheet = data.accounts.find(account => account.id === row.accountId)?.ledger_id ?? "";
+    setBookId(sourceSheet);
     setPanel(row.entry ? { type: "entry", original: row.entry } : { type: "receipt", row });
   }
   async function save<K extends Collection>(collection: K, rows: Workspace[K]) {
@@ -237,6 +246,20 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     if (!configured) writeDemo(next);
     update(next);
     setNotice("Entry deleted");
+  }
+  async function removeGoal(goal: SavingsGoal) {
+    if (saving.current) throw Error("Another change is being saved. Try again in a moment.");
+    const currentOwner = owner.current;
+    if (configured && !currentOwner) throw Error("Sign in before deleting.");
+    saving.current = true;
+    try {
+      if (cloud && currentOwner) await deleteCloud(getSupabase(cloud), currentOwner, "savings_goals", goal.id);
+      if (currentOwner !== owner.current) throw Error("Your account changed while deleting.");
+      const next = { ...dataRef.current, savings_goals: dataRef.current.savings_goals.filter(row => row.id !== goal.id) };
+      if (!configured) writeDemo(next);
+      update(next);
+      setNotice("Goal removed");
+    } finally { saving.current = false; }
   }
   async function moveField(field: Definition, direction: number) {
     const ordered = activeFields(bookData);
@@ -316,6 +339,12 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
           {!loading && route === "overview" && (combinedSheets || showingAllCurrencies
             ? <CombinedOverview workspace={reportBase} month={month} currencies={showingAllCurrencies ? availableCurrencies : [currency]} allSheets={combinedSheets} onOpenSheet={selectSheet}/>
             : <Overview workspace={reportData} month={month} currency={currency} onBrowse={() => navigate("transactions")} onOpen={openActivity} onAdd={() => openEntry()}/>)}
+          {!loading && route === "overview" && <div className="planning-grid">
+            <ActivityCalendar workspace={reportBase} month={month} currency={currency} choices={showingAllCurrencies ? availableCurrencies : undefined} onOpen={openActivity}/>
+            <SavingsGoals workspace={reportBase} currencies={showingAllCurrencies || availableCurrencies.length <= 1 ? goalCurrencies : [currency]}
+              onAdd={!combinedSheets && cashCurrencies.length ? () => setPanel({ type: "goal" }) : undefined}
+              onEdit={goal => setPanel({ type: "goal", goal })}/>
+          </div>}
           {!loading && route === "transactions" && <Transactions workspace={reportData} month={month} currency={currency} filters={filters} setFilters={setFilters} onOpen={openActivity} onAdd={() => openEntry()}/>}
           {!loading && route === "reimbursements" && <Reimbursements workspace={reportData} month={month} currency={currency} onReceive={id => setPanel({ type: "receive", id })}
             onOpen={id => { const entry = data.transactions.find(row => row.id === id); if (entry) setPanel({ type: "entry", original: entry }); }}/>}
@@ -332,6 +361,11 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         if (!panel.original && entries.length === 1) { setMonth(entries[0].occurred_on.slice(0, 7)); setPreferredCurrency(currencyForAccount(bookData, entries[0].account_id)); }
       }}/>}
     {panel?.type === "guide" && <FinanceGuide close={close}/>}
+    {panel?.type === "goal" && <GoalDialog goal={panel.goal} sheetId={currentSheet.id}
+      currencies={panel.goal ? [panel.goal.currency] : cashCurrencies} preferred={currency} close={close}
+      onSave={goal => save("savings_goals", [goal])} onDelete={goal => setPanel({ type: "delete-goal", goal })}/>}
+    {panel?.type === "delete-goal" && <TaskForm title="Remove this goal?" subtitle="The set-aside amount becomes available to spend." close={close}
+      submit={() => removeGoal(panel.goal)} label="Remove goal"><p className="full muted">{panel.goal.name}</p></TaskForm>}
     {panel?.type === "book" && <BookDialog book={panel.book} books={data.finance_books} close={close} onSave={async book => { await save("finance_books", [book]); selectSheet(book.id); }}/>}
     {panel?.type === "manage" && <ManagementDialog workspace={bookData} edit={panel.edit} initialCurrency={currency} close={close}
       save={(collection, rows) => save(collection, rows.map(row => ({ ...row, ledger_id: currentSheet.id || null })) as typeof rows)}/>}
@@ -341,7 +375,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       <p className="full muted">This permanently removes the entry and updates the related balances.</p>
     </TaskForm>}
     {panel?.type === "receipt" && panel.row.receipt && <Modal title="Reimbursement payment" subtitle={panel.row.title} onClose={close}>
-      <dl className="compact-details receipt-detail"><div><dt>Received</dt><dd>{dayLabel(panel.row.date)}</dd></div><div><dt>Account</dt><dd>{accountName(data, panel.row.accountId)}</dd></div><div><dt>Amount</dt><dd>{money(panel.row.amount, currency)}</dd></div>{panel.row.receipt.notes && <div><dt>Notes</dt><dd>{panel.row.receipt.notes}</dd></div>}</dl>
+      <dl className="compact-details receipt-detail"><div><dt>Received</dt><dd>{dayLabel(panel.row.date)}</dd></div><div><dt>Account</dt><dd>{accountName(data, panel.row.accountId)}</dd></div><div><dt>Amount</dt><dd>{money(panel.row.amount, currencyForAccount(data, panel.row.accountId))}</dd></div>{panel.row.receipt.notes && <div><dt>Notes</dt><dd>{panel.row.receipt.notes}</dd></div>}</dl>
       <div className="modal-footer"><button className="button secondary" onClick={close}>Done</button></div>
     </Modal>}
     {panel?.type === "reset" && <TaskForm title="Reset demo data?" subtitle="This replaces the entries and settings saved in this browser with the original fictional data." close={close} label="Reset demo"

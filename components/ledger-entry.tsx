@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
-import { CircleAlert, Plus, Trash2 } from "lucide-react";
+import { CircleAlert, Plus, Sparkles, Trash2 } from "lucide-react";
 import {
-  accountCurrency, activeFields, amountExample, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, kinds, needsDestination, validateEntry, workspaceForCurrency,
+  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, validateEntry, workspaceForCurrency,
   type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
-import { Picker } from "./ledger-picker";
+import { DatePicker, Picker } from "./ledger-picker";
+import { quickEntry } from "@/lib/quick-entry";
 
 type Props = {
   workspace: Workspace; month: string; currency: Currency; original?: Entry; kind?: Kind; preset?: string; initialBulk?: boolean;
@@ -33,7 +34,8 @@ function CustomInput({ definition, value, set, invalid, prior }: {
       ...(prior && current && !definition.options.includes(current) ? [{ value: current, label: current + " (previous option)" }] : []),
       ...definition.options.map(option => ({ value: option, label: option })),
     ]}/>;
-  return <input aria-invalid={invalid} value={current} type={definition.field_type === "date" ? "date" : "text"}
+  if (definition.field_type === "date") return <DatePicker label={definition.label} value={current} onChange={set} invalid={invalid} required={definition.required}/>;
+  return <input aria-invalid={invalid} value={current} onBlur={() => { if (definition.field_type === "number") set(groupNumber(current)); }}
     inputMode={definition.field_type === "number" ? "decimal" : undefined} onChange={event => set(event.target.value)} />;
 }
 
@@ -53,9 +55,13 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const [problem, setProblem] = useState("");
   const [working, setWorking] = useState(false);
   const [claim, setClaim] = useState(!!original?.reimbursable_minor);
+  const [sentence, setSentence] = useState("");
+  const [draftStatus, setDraftStatus] = useState<{ message: string; error?: boolean }>();
   const fields = activeFields(workspace);
   const activeCategories = workspace.categories.filter(category => category.applicable_kind === draft.kind && (!category.archived || original?.category_id === category.id));
   const set = <K extends keyof EntryDraft,>(key: K, value: EntryDraft[K]) => setDraft(current => ({ ...current, [key]: value }));
+  const beforeTracking = historicalAccounts(workspace, draft);
+  const earlyRows = bulk ? rows.filter(row => (row.description.trim() || row.amount.trim()) && historicalAccounts(workspace, row).length).length : 0;
   const availableAccounts = (destination: boolean) => editableAccounts(workspace, draft.kind, destination, destination ? original?.destination_account_id : original?.account_id)
     .filter(account => destination ? accountCurrency(account) === entryCurrency : !original || accountCurrency(account) === originalCurrency);
   const fixedColumns = [
@@ -118,6 +124,15 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#cell-' + (index + 1) + '-' + col)?.focus());
     }
   }
+  function makeQuickDraft() {
+    try {
+      const next = quickEntry(workspace, sentence, currency);
+      setDraft(next); setErrors({}); setClaim(false); setProblem("");
+      setDraftStatus({ message: "Draft ready. Review the details below, then save the entry." });
+    } catch (error) {
+      setDraftStatus({ message: error instanceof Error ? error.message : "Couldn’t read this transaction.", error: true });
+    }
+  }
   async function saveForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (working) return;
@@ -132,7 +147,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     setWorking(true);
     try {
       await onSave([result.entry]);
-      if (saveAnother) { setDraft(make()); setClaim(false); }
+      if (saveAnother) { setDraft(make()); setClaim(false); setSentence(""); setDraftStatus(undefined); }
       else onClose();
     } catch (error) { setProblem(error instanceof Error ? error.message : "The entry could not be saved."); }
     finally { setWorking(false); }
@@ -161,7 +176,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
-      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter amounts like {amountExample("IDR")} for IDR or {amountExample("USD")} for USD, and dates like 2026-11-07 or 07/11/2026.</p></div>
+      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter amounts like 27,000.00 or 27.000,00 for IDR, and dates like 2026-11-07 or 07/11/2026.</p></div>
       <div className="grid-scroll" tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label]) => <th key={key} scope="col" className={"col-" + key}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id}><th scope="row">{index + 1}</th>
@@ -170,6 +185,12 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
                 aria-describedby={error ? "error-" + index + "-" + col : undefined} value={cellText(row, key)}
                 inputMode={key === "amount" || key === "reimbursable" ? "decimal" : undefined}
                 onChange={event => { const value = event.target.value; setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item)); }}
+                onBlur={event => {
+                  const value = event.target.value;
+                  const next = key === "amount" || key === "reimbursable" ? formatMoneyInput(value, currencyForAccount(workspace, row.account_id))
+                    : fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
+                  if (next !== value) setRows(current => current.map(item => item.id === row.id ? assign(item, key, next) : item));
+                }}
                 onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
               {error && <small className="field-error" id={"error-" + index + "-" + col}>{error}</small>}
             </td>; })}
@@ -177,16 +198,25 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
           </tr>)}</tbody>
         </table>
       </div>
+      {earlyRows > 0 && <p className="history-note" role="status">{earlyRows} {earlyRows === 1 ? "row predates" : "rows predate"} an account’s tracking date. These rows appear in reports. Earlier amounts are excluded from the affected balances.</p>}
       <div className="bulk-add"><button type="button" className="button quiet" onClick={() => setRows(current => [...current, make()])} disabled={rows.length >= 250}><Plus size={16} /> Add row</button></div>
       {problem && <p className="form-message error" role="alert"><CircleAlert size={17} />{problem}</p>}
       <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose} disabled={working}>Cancel</button><button className="button primary" disabled={working}>{working ? "Saving…" : "Save all entries"}</button></div>
     </form> : <form className="entry-mode" key="form" onSubmit={saveForm} noValidate>
+      {!original && <details className="quick-entry"><summary><Sparkles size={17} aria-hidden="true"/> Describe a transaction</summary>
+        <Field label="Transaction in your own words"><textarea value={sentence} maxLength={280} rows={2}
+          placeholder="Beli kopi Tuku 27rb via Blu" onChange={event => { setSentence(event.target.value); setDraftStatus(undefined); }}/></Field>
+        <p>Try one income or expense in English or Indonesian. Your text is processed in this browser.</p>
+        <button type="button" className="button secondary" onClick={makeQuickDraft} disabled={working || !sentence.trim()}>Create draft</button>
+        {draftStatus && <p className={draftStatus.error ? "field-error" : "positive"} role="status">{draftStatus.message}</p>}
+      </details>}
       <div className="form-grid">
         <Field label="Type" error={errors.kind}><Picker label="Type" value={draft.kind} invalid={!!errors.kind}
           onValueChange={kind => setDraft(changeKind(workspace, draft, kind))}
           options={Object.entries(kinds).map(([value, label]) => ({ value, label }))}/></Field>
-        <Field label="Date" error={errors.occurred_on}><input type="date" value={draft.occurred_on} aria-invalid={!!errors.occurred_on} onChange={event => set("occurred_on", event.target.value)} /></Field>
-        <Field label={`Amount (${unit})`} error={errors.amount} full><input className="entry-amount" value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount} onChange={event => set("amount", event.target.value)} /></Field>
+        <Field label="Date" error={errors.occurred_on}><DatePicker label="Date" value={draft.occurred_on} invalid={!!errors.occurred_on} required onChange={date => set("occurred_on", date)}/></Field>
+        <Field label={`Amount (${unit})`} error={errors.amount} full><input className="entry-amount" value={draft.amount} inputMode="decimal" placeholder="0" aria-invalid={!!errors.amount}
+          onBlur={() => set("amount", formatMoneyInput(draft.amount, entryCurrency))} onChange={event => set("amount", event.target.value)} /></Field>
         <Field label="Description" error={errors.description} full><input value={draft.description} placeholder="e.g. Grocery run" aria-invalid={!!errors.description} onChange={event => set("description", event.target.value)} /></Field>
         <Field label={needsDestination(draft.kind) ? "From account" : "Account"} error={errors.account_id}>
           <Picker label={needsDestination(draft.kind) ? "From account" : "Account"} value={draft.account_id} invalid={!!errors.account_id}
@@ -205,9 +235,9 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
         </Field>}
         {draft.kind === "expense" && <label className="checkbox-field full"><input type="checkbox" checked={claim} onChange={event => setClaim(event.target.checked)} /> Part of this expense will be reimbursed</label>}
         {draft.kind === "expense" && claim && <>
-          <Field label={`Reimbursable amount (${unit})`} error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onChange={event => set("reimbursable", event.target.value)} /></Field>
+          <Field label={`Reimbursable amount (${unit})`} error={errors.reimbursable}><input value={draft.reimbursable} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0" onBlur={() => set("reimbursable", formatMoneyInput(draft.reimbursable, entryCurrency))} onChange={event => set("reimbursable", event.target.value)} /></Field>
           <Field label="Owed by" error={errors.counterparty}><input value={draft.counterparty} aria-invalid={!!errors.counterparty} onChange={event => set("counterparty", event.target.value)} /></Field>
-          <Field label="Due date (optional)" error={errors.due_on}><input type="date" value={draft.due_on ?? ""} aria-invalid={!!errors.due_on} onChange={event => set("due_on", event.target.value || null)} /></Field>
+          <Field label="Due date (optional)" error={errors.due_on}><DatePicker label="Due date" value={draft.due_on ?? ""} invalid={!!errors.due_on} onChange={date => set("due_on", date || null)}/></Field>
         </>}
         {fields.map(definition => <Field key={definition.id} label={definition.label + (definition.required ? " *" : " (optional)")} error={errors[definition.id]}>
           <CustomInput definition={definition} prior={!!original} value={draft.custom[definition.id]} invalid={!!errors[definition.id]}
@@ -216,6 +246,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
         {original && workspace.field_definitions.filter(definition => definition.archived && Object.hasOwn(original.custom_values, definition.id)).map(definition => <div className="archived-field" key={definition.id}><span>{definition.label} (archived)</span><strong>{String(original.custom_values[definition.id])}</strong></div>)}
         <Field label="Notes (optional)" full><textarea value={draft.notes} rows={2} onChange={event => set("notes", event.target.value)} /></Field>
       </div>
+      {beforeTracking.length > 0 && <p className="history-note" role="status">This entry predates tracking for {beforeTracking.map(account => account.name).join(", ")}. It appears in reports, and the affected tracked {beforeTracking.length === 1 ? "balance stays" : "balances stay"} the same.</p>}
       {problem && <p className="form-message error" role="alert"><CircleAlert size={17} />{problem}</p>}
       <div className="modal-footer">
         {original && onDelete && <button className="button danger quiet push" type="button" onClick={() => onDelete(original)} disabled={working}><Trash2 size={16} /> Delete</button>}

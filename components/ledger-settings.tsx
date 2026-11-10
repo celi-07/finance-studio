@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, BookOpen, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
 import {
   accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, isCurrency, money, newId, parseDate, parseMoney, today,
   type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type Valuation, type Workspace,
 } from "@/lib/ledger";
-import { accountIcons, accountTones, Field, Modal, palette } from "./ledger-ui";
-import { Picker } from "./ledger-picker";
+import { accountIcons, accountTones, Field, Modal, MoneyInput, palette } from "./ledger-ui";
+import { DatePicker, Picker } from "./ledger-picker";
 import { SectionHeading } from "./ledger-views";
 
 type Save = <K extends Collection>(collection: K, rows: Workspace[K]) => Promise<void>;
@@ -58,8 +58,8 @@ export function ReceiptDialog({ workspace, expenseId, close, save }: { workspace
   }
   return <TaskForm title="Receive payment" subtitle={claim.entry.description + " · " + claim.entry.counterparty} close={close} submit={submit} label="Record payment">
     <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining, currency)}</strong></div></div>
-    <Field label={`Amount received (${currencyLabel(currency)})`}><input name="amount" inputMode="decimal" placeholder={amountText(claim.remaining, currency)} required /></Field>
-    <Field label="Date received"><input name="date" type="date" defaultValue={today()} min={claim.entry.occurred_on} max={today()} required/></Field>
+    <Field label={`Amount received (${currencyLabel(currency)})`}><MoneyInput currency={currency} name="amount" placeholder={amountText(claim.remaining, currency)} required /></Field>
+    <Field label="Date received"><DatePicker label="Date received" name="date" defaultValue={today()} min={claim.entry.occurred_on} max={today()} required/></Field>
     <Field label="Deposit account" full><Picker label="Deposit account" name="account" defaultValue={accounts.some(account => account.id === claim.entry.account_id) ? claim.entry.account_id : ""}
       options={[{ value: "", label: "Choose account" }, ...accounts.map(account => ({ value: account.id, label: account.name }))]}/></Field>
     <Field label="Notes (optional)" full><textarea name="notes" rows={2}/></Field>
@@ -81,8 +81,8 @@ export function ValueDialog({ workspace, accountId, close, save }: { workspace: 
     await save("investment_valuations", [valuation]);
   }
   return <TaskForm title="Update valuation" subtitle={accountName(workspace, accountId) + " · Enter the total investment value on this date."} close={close} submit={submit} label="Save valuation">
-    <Field label={`Value (${currencyLabel(currency)})`}><input name="value" inputMode="decimal" placeholder={latest ? amountText(latest.value_minor, currency) : "0"} required/></Field>
-    <Field label="Valuation date"><input name="date" type="date" defaultValue={today()} min={account?.opening_date} max={today()} required/></Field>
+    <Field label={`Value (${currencyLabel(currency)})`}><MoneyInput currency={currency} name="value" placeholder={latest ? amountText(latest.value_minor, currency) : "0"} required/></Field>
+    <Field label="Valuation date"><DatePicker label="Valuation date" name="date" defaultValue={today()} min={account?.opening_date} max={today()} required/></Field>
   </TaskForm>;
 }
 
@@ -105,10 +105,10 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
       const kind = edit.row?.kind ?? value(data, "kind") as Account["kind"];
       if (opening === null) throw Error("Enter a starting balance like " + amountExample(currency) + ".");
       if (!date || !Object.hasOwn(kindLabels, kind)) throw Error("Enter a valid date and account type.");
-      const entryBeforeOpening = workspace.transactions.some(entry => (entry.account_id === edit.row?.id || entry.destination_account_id === edit.row?.id) && entry.occurred_on < date)
-        || workspace.reimbursement_receipts.some(receipt => receipt.account_id === edit.row?.id && receipt.received_on < date)
-        || workspace.investment_valuations.some(valuation => valuation.investment_account_id === edit.row?.id && valuation.valued_on < date);
-      if (entryBeforeOpening) throw Error("Choose an opening date on or before the earliest linked entry.");
+      const linkedHistory = edit.row && date > edit.row.opening_date && (
+        workspace.reimbursement_receipts.some(receipt => receipt.account_id === edit.row?.id && receipt.received_on < date)
+        || workspace.investment_valuations.some(valuation => valuation.investment_account_id === edit.row?.id && valuation.valued_on < date));
+      if (linkedHistory) throw Error("Choose a tracking date on or before the earliest linked payment or valuation.");
       await save("accounts", [{ id: edit.row?.id ?? id, name, kind, currency, opening_minor: opening, opening_date: date, archived }]);
     } else if (edit.collection === "categories") {
       const applicable = edit.row?.applicable_kind ?? value(data, "kind") as Category["applicable_kind"];
@@ -131,8 +131,8 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
         options={Object.entries(kindLabels).map(([value, label]) => ({ value, label }))}/></Field>
       <Field label="Currency" full hint="Currency is set when you add the account."><Picker label="Account currency" value={currency} disabled={!!edit.row}
         options={currencyOptions} onValueChange={code => { if (isCurrency(code)) setCurrency(code); }}/></Field>
-      <Field label={`Starting balance (${currencyLabel(currency)})`} hint="Balance before the first entry you’ll record."><input name="opening" inputMode="decimal" defaultValue={edit.row ? amountText(edit.row.opening_minor, currency) : ""} placeholder={amountExample(currency)}/></Field>
-      <Field label="Start tracking from" hint="Use the date of your earliest entry or an earlier date."><input name="date" type="date" defaultValue={edit.row?.opening_date ?? today()} required/></Field>
+      <Field label={`Starting balance (${currencyLabel(currency)})`} hint="Balance at the start of tracking."><MoneyInput currency={currency} name="opening" defaultValue={edit.row ? amountText(edit.row.opening_minor, currency) : ""} placeholder={amountExample(currency)}/></Field>
+      <Field label="Start tracking from" hint="Earlier entries appear in reports. This balance starts on the selected date."><DatePicker label="Start tracking from" name="date" defaultValue={edit.row?.opening_date ?? today()} required/></Field>
     </>}
     {isCategory && <>
       <Field label="Applies to"><Picker label="Applies to" name="kind" defaultValue={edit.row?.applicable_kind ?? "expense"} disabled={!!edit.row}
@@ -175,7 +175,7 @@ const guideSteps = [
 
 export function FinanceGuide({ close }: { close: () => void }) {
   return <Modal title="Finance Studio guide" subtitle="Set up your records, then follow the steps you need." onClose={close}>
-    <ol className="guide-steps">{guideSteps.map(([title, body], index) => <li key={title}><details open={index === 0 || undefined}><summary>{title}</summary><p>{body}</p></details></li>)}</ol>
+    <ol className="guide-steps">{guideSteps.map(([title, body], index) => <li key={title}><details open={index === 0 || undefined}><summary><span>{title}</span><ChevronDown size={17} aria-hidden="true"/></summary><p>{body}</p></details></li>)}</ol>
     <div className="modal-footer"><a className="button quiet push" href="mailto:whiteeorangee@gmail.com">Contact support</a><button className="button secondary" onClick={close}>Done</button></div>
   </Modal>;
 }

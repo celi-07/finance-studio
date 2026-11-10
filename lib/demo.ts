@@ -42,7 +42,7 @@ export function createDemo(): Workspace {
     e("demo15", prior + "-20", "Book order", 240000, { category_id: "shopping", reimbursable_minor: 12000000, counterparty: "Reading club" }),
   ];
   return {
-    finance_books: [], accounts, categories, transactions,
+    finance_books: [], savings_goals: [], accounts, categories, transactions,
     field_definitions: [{ id: "reference", label: "Reference", field_type: "text", options: [], required: false, position: 0, archived: false }],
     reimbursement_receipts: [
       { id: "sample-payment", expense_id: "demo7", account_id: "bank", received_on: month + "-07", amount_minor: 10000000, notes: "First payment" },
@@ -62,7 +62,8 @@ export function readDemo(): Workspace {
   const envelope: unknown = JSON.parse(raw);
   if (!envelope || typeof envelope !== "object" || !("version" in envelope) || envelope.version !== 1 || !("data" in envelope)) throw Error("Demo data couldn’t be read. Reset the demo to start with a fresh copy.");
   const data = envelope.data;
-  if (!data || typeof data !== "object" || !Object.keys(emptyWorkspace).every(key => key === "finance_books" && !(key in data) || key in data && Array.isArray((data as Record<string, unknown>)[key]))) {
+  if (!data || typeof data !== "object" || !Object.keys(emptyWorkspace).every(key =>
+    (key === "finance_books" || key === "savings_goals") && !(key in data) || key in data && Array.isArray((data as Record<string, unknown>)[key]))) {
     throw Error("Demo data is incomplete. Reset the demo to start with a fresh copy.");
   }
   return { ...emptyWorkspace, ...data } as Workspace;
