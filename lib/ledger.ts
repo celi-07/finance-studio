@@ -39,7 +39,7 @@ export type Entry = {
   custom_values: Record<string, FieldValue>; reimbursable_minor: number; counterparty: string; due_on: string | null;
   reimbursement_claims?: ReimbursementShare[] | null;
 };
-export type Receipt = { id: string; expense_id: string; claim_id?: string | null; income_entry_id?: string | null; account_id: string; received_on: string; amount_minor: number; notes: string };
+export type Receipt = { id: string; expense_id: string; claim_id?: string | null; income_entry_id?: string | null; payment_group_id?: string | null; account_id: string; received_on: string; amount_minor: number; notes: string };
 export type Valuation = { id: string; investment_account_id: string; valued_on: string; value_minor: number };
 export type Workspace = {
   finance_books: FinanceBook[];
@@ -293,6 +293,7 @@ export function entryClaims(entry: Entry): ReimbursementShare[] {
   return entry.reimbursement_claims ?? [{ id: entry.id, amount_minor: entry.reimbursable_minor, counterparty: entry.counterparty, due_on: entry.due_on }];
 }
 export const claimKey = (expenseId: string, claimId: string) => expenseId + ":" + claimId;
+export const paymentKey = (receipt: Receipt) => receipt.payment_group_id ?? receipt.id;
 export const receiptClaimKey = (receipt: Receipt) => claimKey(receipt.expense_id, receipt.claim_id ?? receipt.expense_id);
 const linkedIncomeIds = (workspace: Workspace) => new Set(workspace.reimbursement_receipts.map(receipt => receipt.income_entry_id));
 
@@ -407,7 +408,13 @@ export function activity(workspace: Workspace, period: string, currency: Currenc
       amount: entry.kind === "income" || entry.kind === "investment_withdrawal" ? entry.amount_minor : entry.kind === "transfer" ? entry.amount_minor : -entry.amount_minor,
       accountId: entry.account_id, category: entry.category_id ? categoryName(workspace, entry.category_id) : kinds[entry.kind], entry,
     })),
-    ...report.receipts.map(receipt => {
+    ...Array.from(Map.groupBy(report.receipts, paymentKey), ([id, payments]) => {
+      const receipt = payments.find(item => item.id === id) ?? payments[0];
+      if (payments.length > 1) return {
+        id, date: receipt.received_on, title: "Reimbursement payment", kind: "reimbursement_receipt" as const,
+        amount: total(payments, item => item.amount_minor), accountId: receipt.account_id,
+        category: payments.length + " claims", receipt,
+      };
       const expense = workspace.transactions.find(entry => entry.id === receipt.expense_id);
       const person = expense && entryClaims(expense).find(share => share.id === (receipt.claim_id ?? expense.id));
       return {

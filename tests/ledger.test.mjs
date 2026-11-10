@@ -99,6 +99,22 @@ test("a reimbursement received before account tracking settles the claim without
   assert.equal(claims(workspace)[0].status, "Settled");
 });
 
+test("a combined payment settles several claims and appears as one cash movement", () => {
+  const workspace = setup();
+  workspace.transactions = [
+    entry("lunch", "expense", 4000, { reimbursable_minor: 3000, counterparty: "Sam" }),
+    entry("tickets", "expense", 5000, { reimbursable_minor: 2000, counterparty: "Alex" }),
+  ];
+  workspace.reimbursement_receipts = workspace.transactions.map((expense, index) => ({
+    id: index ? "second" : "deposit", expense_id: expense.id, payment_group_id: "deposit", account_id: "bank",
+    received_on: "2025-02-10", amount_minor: expense.reimbursable_minor,
+  }));
+  assert.deepEqual(claims(workspace).map(claim => claim.status), ["Settled", "Settled"]);
+  assert.deepEqual(activity(workspace, month).filter(row => row.receipt).map(row => [row.id, row.amount]), [["deposit", 5000]]);
+  assert.equal(cashLedger(workspace, month, "IDR").inflow, 5000);
+  assert.equal(reimbursementReport(workspace, month, ["Alex"]).collected, 2000);
+});
+
 test("only browser-safe Supabase settings reach the client", () => {
   const url = "https://ledger.example";
   const legacyKey = role => `header.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.signature`;
