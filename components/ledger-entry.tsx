@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import { ChevronDown, CircleAlert, HandCoins, ListPlus, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, CircleAlert, HandCoins, ListPlus, Plus, Trash2, UserRoundPlus } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import {
   accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, validateFormEntry, workspaceForCurrency,
@@ -43,8 +43,9 @@ function PersonInput({ options, value, invalid, onChange }: {
   </span>;
 }
 
-function SpreadsheetChoice({ workspace, row, column, field, text, label, choose }: {
+function SpreadsheetChoice({ workspace, row, column, field, text, label, choose, disabled }: {
   workspace: Workspace; row: EntryDraft; column: string; field?: Definition; text: string; label: string; choose: (value: string) => void;
+  disabled?: boolean;
 }) {
   if (column === "occurred_on" || column === "due_on" || field?.field_type === "date") {
     return <DatePicker compact label={label} value={parseDate(text) ?? ""} onChange={choose}
@@ -78,7 +79,7 @@ function SpreadsheetChoice({ workspace, row, column, field, text, label, choose 
   } else if (column === "counterparty" && (!knownType || row.kind === "expense")) options = savedPeople(workspace);
   else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
   else if (field?.field_type === "checkbox") options = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
-  return options.length ? <Picker compact label={label} options={options} value={selection} onValueChange={choose}/> : null;
+  return options.length ? <Picker compact label={label} options={options} value={selection} onValueChange={choose} disabled={disabled}/> : null;
 }
 function CustomInput({ definition, value, set, invalid, prior }: {
   definition: Definition; value: string | boolean | undefined; set: (value: string | boolean) => void; invalid?: boolean; prior?: boolean;
@@ -298,7 +299,6 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     if (!Object.keys(next).length && (problem === batchValidationMessage || problem === splitValidationMessage)) setProblem("");
   }
   function openSplit(row: EntryDraft) {
-    if (splitRowId === row.id) { setSplitRowId(null); return; }
     if (!row.people) {
       const amount = row.reimbursable.trim().toLowerCase() === fullReimbursement.toLowerCase() ? row.amount : row.reimbursable;
       const people = [{ id: row.id, amount, counterparty: row.counterparty, due_on: row.due_on }, blankShare()];
@@ -306,6 +306,10 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     }
     setSplitRowId(row.id);
     requestAnimationFrame(() => document.getElementById("sheet-split-editor")?.focus());
+  }
+  function closeSplit(rowId: string) {
+    setSplitRowId(null);
+    requestAnimationFrame(() => document.getElementById("sheet-split-" + rowId)?.focus());
   }
   function paste(event: ClipboardEvent<HTMLInputElement>, rowIndex: number, columnIndex: number) {
     const value = event.clipboardData.getData("text/plain");
@@ -430,7 +434,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   }
   async function saveRows(event: FormEvent) {
     event.preventDefault();
-    if (working) return;
+    if (working || splitRow) return;
     const filled = rows.filter(usedRow);
     if (!filled.length) { setProblem("Enter at least one row to save."); return; }
     const parsed = filled.map(row => [row.id, validateRow(row)] as const);
@@ -456,7 +460,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>{onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Reimbursement payment</button>}</div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
-      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026. For several people on one expense, use Split by person in its Reimbursement column.</p>
+      <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026. Use the person-plus button in an expense’s Reimbursement column to add several people.</p>
         <p>Use the button next to a row number to insert above it. Drag a cell’s corner up or down to fill. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from above, and Alt+Shift+↑ copies from below.</p></div>
       <div className="grid-scroll" ref={bindGrid} tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label, hint]) => <th key={key} scope="col" className={"col-" + key} title={hint} aria-description={hint}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
@@ -469,6 +473,9 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
               const cellSelected = selected?.row === row.id && selected.columns.includes(col);
               const monetary = key === "amount" || key === "reimbursable";
               const amountId = row.id + "/" + key;
+              const splitButton = key === "reimbursable" && row.kind === "expense";
+              const personCount = splitButton ? row.people?.filter(person => person.counterparty.trim()).length ?? 0 : 0;
+              const splitLabel = (row.people ? "Edit split" : "Split by person") + " for row " + (index + 1);
               const splitCell = !!row.people && row.kind === "expense" && splitColumns.has(key);
               const text = splitCell ? "" : cellText(row, key);
               const rowAccount = monetary ? workspace.accounts.find(account => account.id === row.account_id) : undefined;
@@ -485,16 +492,19 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
                   if (next !== value) updateCell(row, key, next);
                 }}
                 onClick={event => selectCell(event, row.id, col)} onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
-              {!splitCell && <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={cellText(row, key)}
+              {splitButton && <button type="button" id={"sheet-split-" + row.id} className="cell-choice sheet-split-button"
+                title={splitLabel} aria-label={splitLabel + (personCount ? ", " + personCount + (personCount === 1 ? " person" : " people") : "")}
+                aria-expanded={splitRowId === row.id} aria-controls={splitRowId === row.id ? "sheet-split-editor" : undefined}
+                onClick={() => openSplit(row)} disabled={working}>
+                <UserRoundPlus size={15} aria-hidden="true"/>
+                {personCount > 0 && <span className="sheet-split-count" aria-hidden="true">{personCount}</span>}
+              </button>}
+              {(!splitCell || splitButton) && <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={text}
                 label={`Choose ${label} for row ${index + 1}`}
-                choose={value => updateCell(row, key, value)}/>}
+                choose={value => updateCell(row, key, value)} disabled={splitCell}/>}
               {!splitCell && rows.length > 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>
-              {key === "reimbursable" && row.kind === "expense" && <button type="button" className="button quiet sheet-split-button"
-                aria-label={(row.people ? "Edit split" : "Split by person") + " for row " + (index + 1)}
-                aria-expanded={splitRowId === row.id} aria-controls={splitRowId === row.id ? "sheet-split-editor" : undefined}
-                onClick={() => openSplit(row)} disabled={working}>{row.people ? "Edit split · " + row.people.length : "Split by person"}</button>}
               {error && !splitCell && <small className="field-error" id={"error-" + index + "-" + col}>{error}</small>}
             </td>; })}
             <td><button type="button" className="icon-button" aria-label={"Remove row " + (index + 1)} disabled={rows.length < 2} onClick={() => setRows(current => current.filter(item => item.id !== row.id))}><Trash2 size={16} /></button></td>
@@ -503,12 +513,12 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       </div>
       {splitRow && <section className="panel sheet-split-editor" id="sheet-split-editor" tabIndex={-1} aria-label={"Reimbursement split for row " + (splitIndex + 1)}>
         <div className="sheet-split-heading"><h3>Reimbursement split · Row {splitIndex + 1}</h3>
-          <button className="button quiet" type="button" onClick={() => setSplitRowId(null)}>Done</button>
+          <button className="button quiet" type="button" onClick={() => closeSplit(splitRow.id)}>Done</button>
         </div>
         <SplitShares workspace={workspace} draft={splitRow} setDraft={change => updateRow(splitRow, change)}
           currency={splitRow.account_id ? currencyForAccount(workspace, splitRow.account_id) : currency} errors={rowErrors[splitRow.id] ?? {}}/>
         <button className="button quiet" type="button" onClick={() => {
-          updateRow(splitRow, row => ({ ...row, people: undefined })); setSplitRowId(null);
+          updateRow(splitRow, row => ({ ...row, people: undefined })); closeSplit(splitRow.id);
         }}>Use single reimbursement</button>
       </section>}
       {earlyRows > 0 && <p className="history-note" role="status">{earlyRows} {earlyRows === 1 ? "row predates" : "rows predate"} an account’s tracking date. These rows appear in reports. Earlier amounts are excluded from the affected balances.</p>}
@@ -528,7 +538,11 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
         {selected && selected.columns.length > 1 && <span className="sheet-selection-count" role="status">{selected.columns.length} cells selected</span>}
       </div>
       {problem && <p className="form-message error" role="alert"><CircleAlert size={17} />{problem}</p>}
-      <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose} disabled={working}>Cancel</button><button className="button primary" disabled={working}>{working ? "Saving…" : "Save all entries"}</button></div>
+      <div className="modal-footer">
+        {splitRow && <small className="sheet-save-hint" id="sheet-save-hint" role="status">Choose Done in the split editor to enable saving.</small>}
+        <button type="button" className="button secondary" onClick={onClose} disabled={working}>Cancel</button>
+        <button className="button primary" disabled={working || !!splitRow} aria-describedby={splitRow ? "sheet-save-hint" : undefined}>{working ? "Saving…" : "Save all entries"}</button>
+      </div>
     </form> : <form className="entry-mode" key="form" onSubmit={saveForm} noValidate>
       <EntryFields workspace={workspace} draft={draft} setDraft={setDraft} currency={currency} original={original}
         errors={errors} claim={claim} setClaim={setClaim}/>
