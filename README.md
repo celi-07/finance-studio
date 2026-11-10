@@ -6,7 +6,7 @@ Finance Studio tracks income, spending, cash movement, reimbursements and invest
 
 From this folder, run **npm ci** and **npm run dev**. Open the local address printed by the development server.
 
-Leave the Supabase settings blank to use the demo. The sample entries are fictional. Changes in this mode stay in the current browser. Use Settings → Demo data to export demo data as JSON or reset it. To download an A4 monthly statement, choose a month and currency and select **Download PDF**. On Transactions, active filters limit the line items and entry details. The summary still covers the full month in the selected currency.
+Leave the Supabase settings blank to use the demo. The sample entries are fictional. Changes in this mode stay in the current browser. Use Settings → Demo data to export demo data as JSON or reset it. To download an A4 statement, choose a reporting period and currency and select **Download PDF**. On Transactions, active filters limit the line items and entry details. The summary still covers the full selected period and currency.
 
 ## Connect Supabase
 
@@ -57,4 +57,8 @@ To launch Google alongside email before Apple is ready, enable **Google** in the
 
 Choose **Add entry → Spreadsheet** or use **Spreadsheet** on Transactions. Paste from Excel or Sheets into the first matching cell. Core columns are Date, Type, Description, Amount, Account and Category. The destination, reimbursement, notes and custom field columns follow. Use **YYYY-MM-DD** or **DD/MM/YYYY**, account and category names from the selected sheet, and each account’s currency for its amount. For example, enter **125.000,50** in IDR and **125,000.50** in USD. The whole batch stays open for correction when any row is invalid.
 
-To enter one transaction in plain language, choose **Add entry → Describe a transaction**. Try **Beli kopi Tuku 27rb via Blu** or **Received USD 500 via Dollar account yesterday**, using the name of an account on your sheet. The browser builds an editable draft using local rules. Review it and select **Save entry**.
+To fill down in the spreadsheet, drag the small corner of a filled cell over the rows below it. You can also focus a cell and press **Ctrl+D** or **Command+D** to copy from the row above. **Reimbursement (optional)** is the portion someone owes you. Enter the full transaction value under **Amount**.
+
+Use **Assistant** to draft one income or expense in plain language. Try **Beli nasi goreng Rp47.900 tanggal 3 Okt 2026**, then send **pakai BCA** or edit the preview directly. The browser uses local rules to prepare the draft. Select **Submit transaction** to save it.
+
+Use **Month**, **Year**, or **All time** to set the reporting period on Overview, Transactions, Reimbursements, and Investments. The PDF uses the same period. The activity calendar appears in Month view. Savings goals show cash and allocations as of today.

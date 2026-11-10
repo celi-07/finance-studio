@@ -74,6 +74,8 @@ export function signed(amount: number, currency: Currency = defaultCurrency) {
 const monthFormat = new Intl.DateTimeFormat("en", { month: "long", year: "numeric", timeZone: "UTC" });
 const dayFormat = new Intl.DateTimeFormat("en", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 export const monthLabel = (month: string) => monthFormat.format(new Date(month + "-01T00:00:00Z"));
+export const periodLabel = (period: string) => period === "all" ? "All time" : period.length === 4 ? period : monthLabel(period);
+export const inPeriod = (date: string, period: string) => period === "all" || date.startsWith(period);
 export const dayLabel = (day: string) => dayFormat.format(new Date(day + "T00:00:00Z"));
 export function shiftMonth(month: string, delta: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -288,12 +290,12 @@ export function balances(workspace: Workspace, before: string) {
     return { account, basis, valuation, value: valuation ? valuation.value_minor + (sinceValuation.get(account.id) ?? 0) : basis };
   });
 }
-export function monthly(data: Workspace, month: string, currency: Currency = defaultCurrency) {
+export function periodReport(data: Workspace, period: string, currency: Currency = defaultCurrency) {
   const workspace = workspaceForCurrency(data, currency);
-  const before = shiftMonth(month, 1) + "-01";
+  const before = period === "all" ? "9999-99-99" : period.length === 4 ? (Number(period) + 1) + "-01-01" : shiftMonth(period, 1) + "-01";
   const accounts = balances(workspace, before);
-  const entries = workspace.transactions.filter(entry => entry.occurred_on.startsWith(month)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));
-  const receipts = workspace.reimbursement_receipts.filter(row => row.received_on.startsWith(month));
+  const entries = workspace.transactions.filter(entry => inPeriod(entry.occurred_on, period)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));
+  const receipts = workspace.reimbursement_receipts.filter(row => inPeriod(row.received_on, period));
   const activeClaims = claims(workspace, before, before < today() ? before : today());
   const expenses = entries.filter(entry => entry.kind === "expense");
   const income = total(entries.filter(entry => entry.kind === "income"), row => row.amount_minor);
@@ -314,10 +316,11 @@ export function monthly(data: Workspace, month: string, currency: Currency = def
     netCashFlow: income + collected + withdrawal - gross - contribution,
     totalAssets: cash + invested + receivable, accounts, claims: activeClaims };
 }
+export const monthly = periodReport;
 
 export type Activity = { id: string; date: string; title: string; kind: Kind | "reimbursement_receipt"; amount: number; accountId: string; category: string; entry?: Entry; receipt?: Receipt };
-export function activity(workspace: Workspace, month: string, currency: Currency = defaultCurrency): Activity[] {
-  const report = monthly(workspace, month, currency);
+export function activity(workspace: Workspace, period: string, currency: Currency = defaultCurrency): Activity[] {
+  const report = periodReport(workspace, period, currency);
   return [
     ...report.entries.map(entry => ({
       id: entry.id, date: entry.occurred_on, title: entry.description, kind: entry.kind,

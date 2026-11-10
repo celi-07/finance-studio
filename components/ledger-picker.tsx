@@ -19,9 +19,10 @@ type PickerProps = {
   icon?: LucideIcon;
   disabled?: boolean;
   invalid?: boolean;
+  portalContainer?: HTMLElement | null;
 };
 
-export function Picker({ label, options, value, defaultValue = "", onValueChange, name, icon: Icon, disabled, invalid }: PickerProps) {
+export function Picker({ label, options, value, defaultValue = "", onValueChange, name, icon: Icon, disabled, invalid, portalContainer }: PickerProps) {
   const [uncontrolled, setUncontrolled] = useState(defaultValue);
   const [dialog, setDialog] = useState<HTMLDialogElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -38,7 +39,7 @@ export function Picker({ label, options, value, defaultValue = "", onValueChange
     return () => scrollArea.removeEventListener("scroll", dismiss);
   }, [dialog, open]);
 
-  return <Select.Root items={options} value={selection} disabled={disabled} modal={!dialog} open={open} onOpenChange={next => {
+  return <Select.Root items={options} value={selection} disabled={disabled} modal={!dialog && !portalContainer} open={open} onOpenChange={next => {
     if (next) scrollDismissal.current = null;
     setOpen(next);
   }} onValueChange={next => {
@@ -50,10 +51,10 @@ export function Picker({ label, options, value, defaultValue = "", onValueChange
     <Select.Trigger className="picker-trigger" type="button" aria-label={label} aria-invalid={invalid}
       ref={setTrigger}>
       {Icon && <Icon size={16} className="picker-leading" aria-hidden="true"/>}
-      <Select.Value className="picker-value" placeholder="Choose an option"/>
+      <Select.Value className="picker-value" placeholder="Choose an option">{options.find(option => option.value === selection)?.label}</Select.Value>
       <ChevronDown className="picker-chevron" size={15} aria-hidden="true"/>
     </Select.Trigger>
-    <Select.Portal container={dialog ?? undefined}>
+    <Select.Portal container={portalContainer ?? dialog ?? undefined}>
       <Select.Positioner alignItemWithTrigger={false} positionMethod="fixed" align="start" sideOffset={7} collisionPadding={10} className="picker-positioner">
         <Select.Popup className="picker-menu" finalFocus={() => scrollDismissal.current ?? true}>
           <Select.List className="picker-options">
@@ -72,6 +73,7 @@ export function Picker({ label, options, value, defaultValue = "", onValueChange
 const firstMonth = "1900-01";
 const lastMonth = "2199-12";
 const monthNames = Array.from({ length: 12 }, (_, index) => monthLabel("2000-" + String(index + 1).padStart(2, "0")).replace(/ 2000$/, ""));
+const years = Array.from({ length: 300 }, (_, index) => String(1900 + index));
 
 const toCalendarDate = (iso: string) => {
   const [year, month, day] = iso.split("-").map(Number);
@@ -85,18 +87,27 @@ export function DatePicker({ label, name, value, defaultValue = "", onChange, mi
 }) {
   const [local, setLocal] = useState(defaultValue);
   const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState((value || defaultValue || today()).slice(0, 7));
   const [container, setContainer] = useState<HTMLDialogElement | null>(null);
+  const [captionPortal, setCaptionPortal] = useState<HTMLDivElement | null>(null);
   const bind = useCallback((button: HTMLButtonElement | null) => setContainer(button?.closest("dialog") ?? null), []);
   const selected = value ?? local;
   const lower = toCalendarDate(min || "1900-01-01");
   const upper = toCalendarDate(max || "2199-12-31");
   const current = toCalendarDate(today());
+  const minMonth = (min || firstMonth).slice(0, 7);
+  const maxMonth = (max || lastMonth).slice(0, 7);
+  const clampMonth = (month: string) => month < minMonth ? minMonth : month > maxMonth ? maxMonth : month;
+  const shown = clampMonth(visibleMonth);
   const select = (date: string) => {
     if (value === undefined) setLocal(date);
     onChange?.(date);
     setOpen(false);
   };
-  return <Popover.Root open={open} onOpenChange={setOpen}>
+  return <Popover.Root open={open} onOpenChange={next => {
+    if (next) setVisibleMonth((selected || today()).slice(0, 7));
+    setOpen(next);
+  }}>
     {name && <input type="hidden" name={name} value={selected}/>}
     <Popover.Trigger ref={bind} className="picker-trigger date-trigger" type="button" aria-label={label + (selected ? ", " + dayLabel(selected) : "")} aria-invalid={invalid}>
       <CalendarDays size={16} className="picker-leading" aria-hidden="true"/>
@@ -105,9 +116,21 @@ export function DatePicker({ label, name, value, defaultValue = "", onChange, mi
     </Popover.Trigger>
     <Popover.Portal container={container ?? undefined}>
       <Popover.Content className="month-popover day-popover" aria-label={label} align="start" sideOffset={8} collisionPadding={10}>
+        <div className="date-caption" ref={setCaptionPortal}>
+          <button type="button" className="icon-button" aria-label="Previous calendar month" disabled={shown <= minMonth} onClick={() => setVisibleMonth(shiftMonth(shown, -1))}><ChevronLeft size={17}/></button>
+          <Picker label="Calendar month" value={shown.slice(5)} portalContainer={captionPortal} onValueChange={month => setVisibleMonth(shown.slice(0, 5) + month)}
+            options={monthNames.flatMap((name, index) => {
+              const month = String(index + 1).padStart(2, "0");
+              const candidate = shown.slice(0, 5) + month;
+              return candidate < minMonth || candidate > maxMonth ? [] : [{ value: month, label: name }];
+            })}/>
+          <Picker label="Calendar year" value={shown.slice(0, 4)} portalContainer={captionPortal} onValueChange={year => setVisibleMonth(clampMonth(year + shown.slice(4)))}
+            options={years.filter(year => year >= minMonth.slice(0, 4) && year <= maxMonth.slice(0, 4)).map(year => ({ value: year, label: year }))}/>
+          <button type="button" className="icon-button" aria-label="Next calendar month" disabled={shown >= maxMonth} onClick={() => setVisibleMonth(shiftMonth(shown, 1))}><ChevronRight size={17}/></button>
+        </div>
         <DayPicker mode="single" required={false} autoFocus weekStartsOn={1}
-          captionLayout="dropdown" navLayout="after" startMonth={lower} endMonth={upper}
-          today={current} defaultMonth={selected ? toCalendarDate(selected) : current}
+          hideNavigation startMonth={lower} endMonth={upper}
+          today={current} month={toCalendarDate(shown + "-01")} onMonthChange={date => setVisibleMonth(clampMonth(fromCalendarDate(date).slice(0, 7)))}
           selected={selected ? toCalendarDate(selected) : undefined}
           disabled={[{ before: lower }, { after: upper }]}
           onSelect={(date, clicked) => select(fromCalendarDate(date ?? clicked))}/>
@@ -115,6 +138,19 @@ export function DatePicker({ label, name, value, defaultValue = "", onChange, mi
       </Popover.Content>
     </Popover.Portal>
   </Popover.Root>;
+}
+
+export type PeriodMode = "month" | "year" | "all";
+export function ReportingPeriod({ value, mode, onChange, onModeChange }: {
+  value: string; mode: PeriodMode; onChange: (month: string) => void; onModeChange: (mode: PeriodMode) => void;
+}) {
+  return <div className="reporting-period">
+    <Picker label="Reporting period" value={mode} onValueChange={next => { if (next === "month" || next === "year" || next === "all") onModeChange(next); }}
+      options={[{ value: "month", label: "Month" }, { value: "year", label: "Year" }, { value: "all", label: "All time" }]}/>
+    {mode === "month" && <ReportingMonth value={value} onChange={onChange}/>}
+    {mode === "year" && <Picker label="Reporting year" icon={CalendarDays} value={value.slice(0, 4)}
+      options={years.map(year => ({ value: year, label: year }))} onValueChange={year => onChange(year + value.slice(4))}/>}
+  </div>;
 }
 
 export function ReportingMonth({ value, onChange }: { value: string; onChange: (value: string) => void }) {

@@ -1,21 +1,21 @@
 import type { Activity, Currency, Workspace } from "./ledger";
-import { accountName, activity, activityLabel, activityMoney, dayLabel, money, monthly, monthLabel, today } from "./ledger";
+import { accountName, activity, activityLabel, activityMoney, dayLabel, money, periodReport, periodLabel, today } from "./ledger";
 
-export async function downloadStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, filtered?: Activity[], sheet?: string) {
+export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, filtered?: Activity[], sheet?: string) {
   const response = await fetch("/DejaVuSans.ttf");
   if (!response.ok) throw Error("The statement font could not be loaded. Try the download again.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   let binary = "";
   for (let start = 0; start < bytes.length; start += 8192) binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
-  const pdf = await createStatement(workspace, month, currency, demo, btoa(binary), filtered, sheet);
+  const pdf = await createStatement(workspace, period, currency, demo, btoa(binary), filtered, sheet);
   const sheetSlug = sheet?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-  pdf.save(["finance-studio", sheetSlug, month, currency.toLowerCase(), demo ? "demo" : ""].filter(Boolean).join("-") + ".pdf");
+  pdf.save(["finance-studio", sheetSlug, period, currency.toLowerCase(), demo ? "demo" : ""].filter(Boolean).join("-") + ".pdf");
 }
 
-export async function createStatement(workspace: Workspace, month: string, currency: Currency, demo: boolean, font: string, filtered?: Activity[], sheet?: string) {
+export async function createStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, font: string, filtered?: Activity[], sheet?: string) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const report = monthly(workspace, month, currency);
-  const rows = filtered ?? activity(workspace, month, currency);
+  const report = periodReport(workspace, period, currency);
+  const rows = filtered ?? activity(workspace, period, currency);
   const pdf = new jsPDF({ format: "a4", unit: "mm", compress: true, putOnlyUsedFonts: true });
   pdf.addFileToVFS("DejaVuSans.ttf", font);
   pdf.addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
@@ -25,7 +25,7 @@ export async function createStatement(workspace: Workspace, month: string, curre
   const accent = "#234fca";
   const num = (amount: number) => money(amount, currency).replace(/\u00a0/g, " ");
   const safe = (text: string) => text.replace(/\r\n?/g, "\n").replace(/[\x00-\x09\x0b-\x1f]/g, " ");
-  pdf.setProperties({ title: "Finance Studio Monthly Statement - " + monthLabel(month) + " - " + currency, creator: "Finance Studio" });
+  pdf.setProperties({ title: "Finance Studio Statement - " + periodLabel(period) + " - " + currency, creator: "Finance Studio" });
   pdf.setFillColor("#161616"); pdf.roundedRect(15, 16, 8, 8, 2.1, 2.1, "F");
   pdf.setFillColor("#639aee"); pdf.roundedRect(17, 18, 2, 2, .5, .5, "F");
   pdf.setFillColor("#4878c9"); pdf.roundedRect(19.6, 18, 1.4, 1.4, .4, .4, "F");
@@ -36,9 +36,9 @@ export async function createStatement(workspace: Workspace, month: string, curre
   pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(9);
   pdf.text("Issued " + dayLabel(today()), 195, 21.6, { align: "right" });
   pdf.setFont("helvetica", "bold"); pdf.setTextColor(ink); pdf.setFontSize(25);
-  pdf.text("Monthly statement", 15, 38);
+  pdf.text("Statement", 15, 38);
   pdf.setFont("helvetica", "normal"); pdf.setTextColor(muted); pdf.setFontSize(10);
-  pdf.text(monthLabel(month) + "  /  " + currency, 15, 46);
+  pdf.text(periodLabel(period) + "  /  " + currency, 15, 46);
   if (sheet) {
     pdf.setFont("DejaVuSans", "normal"); pdf.setFontSize(8);
     pdf.text(safe(sheet).replace(/\n/g, " "), 78, 46, { maxWidth: demo ? 86 : 117 });
@@ -46,7 +46,7 @@ export async function createStatement(workspace: Workspace, month: string, curre
   if (demo) { pdf.setFont("helvetica", "bold"); pdf.setTextColor(accent); pdf.text("DEMO DATA", 195, 46, { align: "right" }); }
   pdf.setFillColor("#eef2fb"); pdf.roundedRect(15, 52, 180, 20, 2, 2, "F");
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(muted);
-  pdf.text("Cash balance at month end", 20, 64);
+  pdf.text("Cash balance at period end", 20, 64);
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(ink);
   pdf.text(num(report.cash), 190, 64.7, { align: "right" });
   const style = { font: "DejaVuSans", textColor: ink, fontSize: 9, cellPadding: 2.5, overflow: "linebreak" as const };
@@ -65,14 +65,14 @@ export async function createStatement(workspace: Workspace, month: string, curre
     });
     cursor = ((pdf as typeof pdf & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY) + 11;
   }
-  block("Full-month summary", ["Summary", "Amount"], [
+  block("Period summary", ["Summary", "Amount"], [
     ["Income", num(report.income)],
     ["Gross expenses paid", num(report.gross)], ["Personal spending", num(report.spending)],
     ["Reimbursements received", num(report.collected)], ["Reimbursements outstanding", num(report.receivable)],
     ["Investment contributions", num(report.contribution)], ["Investment withdrawals", num(report.withdrawal)],
-    ["Estimated investments at month end", num(report.invested)], ["Net cash movement", num(report.netCashFlow)],
+    ["Estimated investments at period end", num(report.invested)], ["Net cash movement", num(report.netCashFlow)],
   ], { 1: { halign: "right", cellWidth: 50 } });
-  block("Personal spending by category", ["Category", "Personal share"], report.categories.length ? report.categories.map(category => [category.name, num(category.amount)]) : [["No spending this month", num(0)]], { 1: { halign: "right", cellWidth: 50 } });
+  block("Personal spending by category", ["Category", "Personal share"], report.categories.length ? report.categories.map(category => [category.name, num(category.amount)]) : [["No spending this period", num(0)]], { 1: { halign: "right", cellWidth: 50 } });
   block(filtered ? "Filtered transaction activity" : "Transaction activity", ["Date", "Description", "Type / category", "Account", "Amount"],
     rows.length ? rows.map(row => [
       row.date, row.title, row.category === activityLabel(row) ? row.category : activityLabel(row) + "\n" + row.category,
@@ -89,13 +89,13 @@ export async function createStatement(workspace: Workspace, month: string, curre
     return values.map(([label, value]) => [row.date, row.title, label, value]);
   });
   if (details.length) block("Entry details", ["Date", "Entry", "Field", "Value"], details, { 0: { cellWidth: 27 }, 1: { cellWidth: 46 }, 2: { cellWidth: 32 } });
-  block("Reimbursements at month end", ["Expense / counterparty", "Status", "Claimed", "Received", "Outstanding"],
+  block("Reimbursements at period end", ["Expense / counterparty", "Status", "Claimed", "Received", "Outstanding"],
     report.claims.length ? report.claims.map(claim => [
       claim.entry.description + " / " + claim.entry.counterparty, claim.status,
       num(claim.entry.reimbursable_minor), num(claim.paid), num(claim.remaining),
     ]) : [["No claims", "", "", "", ""]], { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } });
   const holdings = report.accounts.filter(row => row.account.kind === "investment");
-  block("Investments at month end", ["Holding", "Contributed balance", "Estimated value"], holdings.length
+  block("Investments at period end", ["Holding", "Contributed balance", "Estimated value"], holdings.length
     ? holdings.map(row => [row.account.name, num(row.basis), num(row.value)]) : [["No investment accounts", num(0), num(0)]],
     { 1: { halign: "right" }, 2: { halign: "right" } });
   block("Cash movement totals", ["Movement", "Amount"], [
@@ -106,7 +106,7 @@ export async function createStatement(workspace: Workspace, month: string, curre
     pdf.setPage(number);
     pdf.setDrawColor("#d7deea"); pdf.line(15, page.getHeight() - 13, 195, page.getHeight() - 13);
     pdf.setTextColor(muted); pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
-    pdf.text("Finance Studio  |  " + monthLabel(month) + "  |  " + currency + (demo ? "  |  Demo data" : ""), 15, page.getHeight() - 8);
+    pdf.text("Finance Studio  |  " + periodLabel(period) + "  |  " + currency + (demo ? "  |  Demo data" : ""), 15, page.getHeight() - 8);
     pdf.text(number + " / " + count, 195, page.getHeight() - 8, { align: "right" });
   }
   return pdf;
