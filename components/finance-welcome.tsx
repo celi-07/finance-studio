@@ -29,7 +29,13 @@ export function FinanceWelcome({ demo, onStart }: { demo: boolean; onStart: () =
       <article><span className="glyph" data-tone="amber"><ChartNoAxesCombined size={20}/></span><h2>Charts and reports</h2><p>See monthly income, expenses and net wealth in charts. Review balances by currency and download PDF statements.</p></article>
       <article><span className="glyph" data-tone="blue"><LockKeyhole size={20}/></span><h2>Track without linking a bank</h2><p>Enter balances and transactions manually. Finance Studio keeps your ledger private to your account and never asks for bank credentials.</p></article>
     </section>
-    <footer className="welcome-footer"><span>Finance Studio @whiteeorangee</span><a href="mailto:whiteeorangee@gmail.com">Contact support</a></footer>
+    <footer className="welcome-footer">
+      <span>Finance Studio @whiteeorangee</span>
+      <nav className="welcome-footer-links" aria-label="Footer">
+        <a href="/privacy">Privacy Policy</a>
+        <a href="mailto:whiteeorangee@gmail.com">Contact support</a>
+      </nav>
+    </footer>
   </main>;
 }
 
