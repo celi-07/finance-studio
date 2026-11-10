@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, validateEntry, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, parseDate, parseMoney, periodReport, validateEntry, workspaceForBook } from "../lib/ledger.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
 
@@ -182,6 +182,32 @@ test("a year includes only that year's activity and snapshots keep earlier balan
   assert.equal(periodReport(workspace, "2025").cash, 104_000);
   assert.equal(periodReport(workspace, "all").income, 23_000);
   assert.equal(periodReport(workspace, "all").cash, 114_000);
+});
+
+test("cash statements reconcile account openings, historic entries, transfers, investments and payments", () => {
+  const workspace = setup();
+  workspace.accounts[1].opening_date = "2025-02-03";
+  workspace.accounts[1].opening_minor = 6_000;
+  workspace.transactions = [
+    entry("before-opening", "expense", 1_000, { account_id: "wallet", occurred_on: "2025-02-01" }),
+    entry("salary", "income", 20_000),
+    entry("trip", "expense", 7_000, { reimbursable_minor: 5_000, counterparty: "Team" }),
+    entry("internal", "transfer", 9_000, { destination_account_id: "wallet" }),
+    entry("buy fund", "investment_contribution", 10_000, { destination_account_id: "fund" }),
+  ];
+  workspace.reimbursement_receipts = [{ id: "payment", expense_id: "trip", account_id: "wallet", received_on: "2025-02-08", amount_minor: 3_000 }];
+  const ledger = cashLedger(workspace, month, "IDR");
+  assert.deepEqual([ledger.start, ledger.openings, ledger.inflow, ledger.outflow, ledger.end], [100_000, 6_000, 23_000, 17_000, 112_000]);
+  assert.equal(ledger.end, periodReport(workspace, month).cash);
+  assert.equal(ledger.rows.find(item => item.row?.id === "before-opening").change, 0);
+  assert.equal(ledger.rows.find(item => item.row?.id === "internal").change, 0);
+});
+
+test("a reimbursement saves null for an empty or whitespace-only due date", () => {
+  const workspace = setup();
+  const draft = draftFrom(entry("claim", "expense", 3_000, { reimbursable_minor: 2_000, counterparty: "Team" }));
+  for (const due_on of [null, "", "   "]) assert.equal(validateEntry(workspace, { ...draft, due_on }).entry.due_on, null);
+  assert.match(validateEntry(workspace, { ...draft, due_on: "2025-02-01" }).errors.due_on, /on or after/);
 });
 
 test("the assistant extracts Indonesian named dates and edits a draft without guessing between accounts", () => {

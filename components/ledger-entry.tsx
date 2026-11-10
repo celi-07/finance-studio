@@ -3,7 +3,7 @@
 import { useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import {
-  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, validateEntry, workspaceForCurrency,
+  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, workspaceForCurrency,
   type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
@@ -18,9 +18,34 @@ function kindMatch(value: string) {
   return Object.hasOwn(kinds, normalized) ? normalized : value.trim();
 }
 function changeKind(workspace: Workspace, draft: EntryDraft, kind: string) {
+  if (draft.kind === kind) return draft;
   return { ...draft, kind, category_id: null,
     account_id: editableAccounts(workspace, kind).some(account => account.id === draft.account_id) ? draft.account_id : "",
     destination_account_id: null };
+}
+function SpreadsheetChoice({ workspace, row, column, field, text, label, choose }: {
+  workspace: Workspace; row: EntryDraft; column: string; field?: Definition; text: string; label: string; choose: (value: string) => void;
+}) {
+  if (column === "occurred_on" || column === "due_on" || field?.field_type === "date") {
+    return <DatePicker compact label={label} value={parseDate(text) ?? ""} onChange={choose}
+      min={column === "due_on" ? parseDate(row.occurred_on) ?? undefined : undefined} required={column === "occurred_on" || field?.required}/>;
+  }
+  let options: { value: string; label: string; swatch?: string }[] = [];
+  if (column === "kind") options = Object.values(kinds).map(label => ({ value: label, label }));
+  else if (column === "category_id") options = [
+    { value: "", label: "Uncategorized" },
+    ...workspace.categories.filter(category => !category.archived && category.applicable_kind === row.kind)
+      .map(category => ({ value: category.name, label: category.name, swatch: category.color })),
+  ];
+  else if (column === "account_id" || column === "destination_account_id") {
+    const destination = column === "destination_account_id";
+    if (destination && !needsDestination(row.kind)) return null;
+    options = editableAccounts(workspace, row.kind, destination)
+      .filter(account => !destination || account.id !== row.account_id && (!row.account_id || accountCurrency(account) === currencyForAccount(workspace, row.account_id)))
+      .map(account => ({ value: account.name, label: account.name + " · " + accountCurrency(account) }));
+  } else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
+  else if (field?.field_type === "checkbox") options = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
+  return options.length ? <Picker compact label={label} options={options} value={text} onValueChange={choose}/> : null;
 }
 function CustomInput({ definition, value, set, invalid, prior }: {
   definition: Definition; value: string | boolean | undefined; set: (value: string | boolean) => void; invalid?: boolean; prior?: boolean;
@@ -112,11 +137,20 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const fields = activeFields(workspace);
   const earlyRows = rows.filter(row => (row.description.trim() || row.amount.trim()) && historicalAccounts(workspace, row).length).length;
   const fixedColumns = [
-    ["occurred_on", "Date"], ["kind", "Type"], ["description", "Description"], ["amount", "Amount"], ["account_id", "Account"],
-    ["category_id", "Category"], ["destination_account_id", "Destination"], ["reimbursable", "Reimbursement (optional)"],
-    ["counterparty", "Owed by"], ["due_on", "Due date"], ["notes", "Notes"],
+    ["occurred_on", "Date", "Date the transaction happened. Type YYYY-MM-DD or DD/MM/YYYY, or pick a day."],
+    ["kind", "Type", "How the money moved, such as income, expense, transfer, or an investment movement."],
+    ["description", "Description", "A short name for the transaction, such as Groceries."],
+    ["amount", "Amount", "Full transaction amount in the source account’s currency."],
+    ["account_id", "Account", "The account the money came from, or the account that received income."],
+    ["category_id", "Category", "Optional label for an income or expense. The options follow the selected type."],
+    ["destination_account_id", "Destination", "Receiving account for a transfer or investment movement. Use the same currency."],
+    ["reimbursable", "Reimbursement (optional)", "Portion of the expense that someone owes you back."],
+    ["counterparty", "Owed by", "The person or organization paying the reimbursement."],
+    ["due_on", "Due date", "Optional deadline for the reimbursement. Leave blank if there is no deadline."],
+    ["notes", "Notes", "Optional context to keep with the transaction."],
   ] as const;
-  const columns = [...fixedColumns, ...fields.map(field => [field.id, field.label] as const)];
+  const columns = [...fixedColumns, ...fields.map(field => [field.id, field.label,
+    `${field.required ? "Required" : "Optional"} custom field · ${field.field_type}.`] as const)];
   const fieldById = new Map(fields.map(field => [field.id, field]));
   const match = (name: string, items: { id: string; name: string }[]) =>
     items.find(item => item.name.toLowerCase() === name.trim().toLowerCase() || item.id === name.trim())?.id ?? name.trim();
@@ -255,7 +289,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter amounts like 27,000.00 or 27.000,00 for IDR, and dates like 2026-11-07 or 07/11/2026. Drag a cell’s corner down to copy it, or press Ctrl+D in the cell below.</p></div>
       <div className="grid-scroll" ref={grid} tabIndex={0} aria-label="Spreadsheet entry grid">
-        <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label]) => <th key={key} scope="col" className={"col-" + key}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
+        <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label, hint]) => <th key={key} scope="col" className={"col-" + key} title={hint} aria-description={hint}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}><th scope="row">{index + 1}</th>
             {columns.map(([key, label], col) => { const error = rowErrors[row.id]?.[key]; return <td key={key} data-fill={fill && fill.column === col && index >= fill.start && index <= fill.end || undefined}>
               <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error}
@@ -269,6 +303,9 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
                   if (next !== value) setRows(current => current.map(item => item.id === row.id ? assign(item, key, next) : item));
                 }}
                 onPaste={event => paste(event, index, col)} onKeyDown={event => advance(event, index, col)} />
+              <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={cellText(row, key)}
+                label={`Choose ${label} for row ${index + 1}`}
+                choose={value => setRows(current => current.map(item => item.id === row.id ? assign(item, key, value) : item))}/>
               {index < rows.length - 1 && cellText(row, key) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>

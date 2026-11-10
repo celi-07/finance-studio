@@ -275,11 +275,11 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     catch (error) { setProblem(errorText(error)); }
   }
   async function makePdf() {
-    if (exporting) return;
+    if (exporting || route === "settings" || route === "assistant") return;
     setExporting(true); setProblem("");
     try {
       const filtered = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, period, filters, currency) : undefined;
-      await downloadStatement(reportData, period, currency, !configured, filtered, showingAllSheets ? "All sheets" : currentSheet.name);
+      await downloadStatement(reportData, period, currency, !configured, route, showingAllSheets ? "All sheets" : currentSheet.name, filtered);
       setNotice("Statement downloaded");
     } catch (error) { setProblem(errorText(error)); }
     finally { setExporting(false); }
@@ -363,7 +363,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
             setPreferredCurrency(currencyForAccount(bookData, entry.account_id));
           }}/>
         </div>}
-        <footer className="footer"><span>Finance Studio</span></footer>
+        <footer className="footer"><span>Finance Studio @whiteeorangee</span></footer>
       </div>
     </main>
     {panel?.type === "entry" && <EntryDialog workspace={bookData} month={month} currency={currency} original={panel.original} kind={panel.kind} preset={panel.preset} initialBulk={panel.bulk} onClose={close}

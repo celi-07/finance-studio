@@ -20,9 +20,10 @@ type PickerProps = {
   disabled?: boolean;
   invalid?: boolean;
   portalContainer?: HTMLElement | null;
+  compact?: boolean;
 };
 
-export function Picker({ label, options, value, defaultValue = "", onValueChange, name, icon: Icon, disabled, invalid, portalContainer }: PickerProps) {
+export function Picker({ label, options, value, defaultValue = "", onValueChange, name, icon: Icon, disabled, invalid, portalContainer, compact }: PickerProps) {
   const [uncontrolled, setUncontrolled] = useState(defaultValue);
   const [dialog, setDialog] = useState<HTMLDialogElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -48,10 +49,10 @@ export function Picker({ label, options, value, defaultValue = "", onValueChange
     onValueChange?.(next);
   }}>
     {name && <input type="hidden" name={name} value={selection} disabled={disabled}/>}
-    <Select.Trigger className="picker-trigger" type="button" aria-label={label} aria-invalid={invalid}
+    <Select.Trigger className={compact ? "cell-choice" : "picker-trigger"} type="button" aria-label={label} aria-invalid={invalid}
       ref={setTrigger}>
       {Icon && <Icon size={16} className="picker-leading" aria-hidden="true"/>}
-      <Select.Value className="picker-value" placeholder="Choose an option">{options.find(option => option.value === selection)?.label}</Select.Value>
+      {!compact && <Select.Value className="picker-value" placeholder="Choose an option">{options.find(option => option.value === selection)?.label}</Select.Value>}
       <ChevronDown className="picker-chevron" size={15} aria-hidden="true"/>
     </Select.Trigger>
     <Select.Portal container={portalContainer ?? dialog ?? undefined}>
@@ -81,9 +82,9 @@ const toCalendarDate = (iso: string) => {
 };
 const fromCalendarDate = (date: Date) => [date.getFullYear(), date.getMonth() + 1, date.getDate()].map(part => String(part).padStart(2, "0")).join("-");
 
-export function DatePicker({ label, name, value, defaultValue = "", onChange, min, max, invalid, required }: {
+export function DatePicker({ label, name, value, defaultValue = "", onChange, min, max, invalid, required, compact }: {
   label: string; name?: string; value?: string; defaultValue?: string; onChange?: (date: string) => void;
-  min?: string; max?: string; invalid?: boolean; required?: boolean;
+  min?: string; max?: string; invalid?: boolean; required?: boolean; compact?: boolean;
 }) {
   const [local, setLocal] = useState(defaultValue);
   const [open, setOpen] = useState(false);
@@ -109,10 +110,10 @@ export function DatePicker({ label, name, value, defaultValue = "", onChange, mi
     setOpen(next);
   }}>
     {name && <input type="hidden" name={name} value={selected}/>}
-    <Popover.Trigger ref={bind} className="picker-trigger date-trigger" type="button" aria-label={label + (selected ? ", " + dayLabel(selected) : "")} aria-invalid={invalid}>
+    <Popover.Trigger ref={bind} className={compact ? "cell-choice" : "picker-trigger date-trigger"} type="button" aria-label={label + (selected ? ", " + dayLabel(selected) : "")} aria-invalid={invalid}>
       <CalendarDays size={16} className="picker-leading" aria-hidden="true"/>
-      <span className="picker-value">{selected ? dayLabel(selected) : "Choose a date"}</span>
-      <ChevronDown className="picker-chevron" size={15} aria-hidden="true"/>
+      {!compact && <><span className="picker-value">{selected ? dayLabel(selected) : "Choose a date"}</span>
+      <ChevronDown className="picker-chevron" size={15} aria-hidden="true"/></>}
     </Popover.Trigger>
     <Popover.Portal container={container ?? undefined}>
       <Popover.Content className="month-popover day-popover" aria-label={label} align="start" sideOffset={8} collisionPadding={10}>
