@@ -404,6 +404,18 @@ export function periodReport(data: Workspace, period: string, currency: Currency
     netCashFlow: income + collected + withdrawal - gross - contribution,
     totalAssets: cash + invested + receivable, accounts, claims: activeClaims };
 }
+export function overviewHistory(workspace: Workspace, period: string, currency: Currency, currentMonth = today().slice(0, 7)) {
+  const end = period === "all" ? currentMonth : period.length === 4
+    ? period === currentMonth.slice(0, 4) ? currentMonth : period + "-12"
+    : period;
+  const count = period.length === 4 ? Number(end.slice(5)) : period === "all" ? 12 : 6;
+  const scope = workspaceForCurrency(workspace, currency);
+  return Array.from({ length: count }, (_, index) => {
+    const month = shiftMonth(end, index - count + 1);
+    const report = periodReport(scope, month, currency);
+    return { month, wealth: report.totalAssets, income: report.income, expenses: report.gross };
+  });
+}
 export const monthly = periodReport;
 
 export type Activity = { id: string; date: string; title: string; kind: Kind | "reimbursement_receipt"; amount: number; accountId: string; category: string; entry?: Entry; receipt?: Receipt };
