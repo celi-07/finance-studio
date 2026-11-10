@@ -51,7 +51,7 @@ To launch Google alongside email before Apple is ready, enable **Google** in the
 - Transfers between cash accounts leave aggregate cash unchanged. Investment contributions and withdrawals move value between cash and investment accounts.
 - Reimbursable expenses reduce cash by the amount paid. Personal spending is the share that belongs to you. Receipts add cash and reduce the open claim separately.
 - Investment estimates use the last manually entered end-of-day valuation plus later contributions minus later withdrawals. Until you enter a valuation, the contributed balance supplies the estimate.
-- PDFs are generated in the browser. The embedded DejaVu Sans font covers Latin, Greek, Cyrillic and other supported glyphs. For scripts or symbols outside its glyph set, the original text remains in Finance Studio.
+- PDFs are generated in the browser with [Plus Jakarta Sans](https://github.com/tokotype/PlusJakartaSans). DejaVu Sans supplies fallback glyphs for scripts such as Greek and Cyrillic. For characters outside both fonts’ glyph sets, the original text remains in Finance Studio.
 
 ## Spreadsheet entry
 

@@ -6,40 +6,53 @@ const titles: Record<StatementKind, string> = {
   overview: "Financial overview", transactions: "Transaction statement",
   reimbursements: "Reimbursement statement", investments: "Investment statement",
 };
+const fontFiles = ["PlusJakartaSans-Regular.ttf", "PlusJakartaSans-Bold.ttf", "DejaVuSans.ttf"] as const;
+const primaryFont = "PlusJakartaSans-Regular";
+const boldFont = "PlusJakartaSans-Bold";
+const fallbackFont = "DejaVuSans";
 
-export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string, filtered?: Activity[]) {
-  const response = await fetch("/DejaVuSans.ttf");
+async function loadFont(file: string) {
+  const response = await fetch("/" + file);
   if (!response.ok) throw Error("The statement font could not be loaded. Try the download again.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   let binary = "";
   for (let start = 0; start < bytes.length; start += 8192) binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
-  const pdf = await createStatement(workspace, period, currency, demo, btoa(binary), kind, sheet, filtered);
+  return btoa(binary);
+}
+
+export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string, filtered?: Activity[]) {
+  const fonts = await Promise.all(fontFiles.map(loadFont));
+  const pdf = await createStatement(workspace, period, currency, demo, fonts, kind, sheet, filtered);
   const sheetSlug = sheet?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
   pdf.save(["finance-studio", kind, sheetSlug, period, currency.toLowerCase(), demo ? "demo" : ""].filter(Boolean).join("-") + ".pdf");
 }
 
 type Columns = Record<number, { cellWidth?: number; halign?: "right" }>;
 
-export async function createStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, font: string,
+export async function createStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, fonts: readonly string[],
   kind: StatementKind, sheet?: string, filtered?: Activity[]) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const scope = workspaceForCurrency(workspace, currency);
   const report = periodReport(scope, period, currency);
   const pdf = new jsPDF({ format: "a4", unit: "mm", compress: true, putOnlyUsedFonts: true });
-  pdf.addFileToVFS("DejaVuSans.ttf", font);
-  pdf.addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
-  pdf.setFont("DejaVuSans", "normal");
+  fontFiles.forEach((file, index) => pdf.addFileToVFS(file, fonts[index]));
+  pdf.addFont(fontFiles[0], primaryFont, "normal");
+  pdf.addFont(fontFiles[1], boldFont, "bold");
+  pdf.addFont(fontFiles[2], fallbackFont, "normal");
+  pdf.setFont(primaryFont, "normal");
   const amountFont = pdf.getFont();
+  const glyphs = amountFont.metadata as { characterToGlyph: (code: number) => number };
+  const needsFallback = (text: string) => Array.from(text).some(char => char !== "\n" && !glyphs.characterToGlyph(char.codePointAt(0)!));
   const left = 16, right = 194, pageHeight = pdf.internal.pageSize.getHeight();
   const num = (amount: number) => (amount < 0 ? "−" : "") + currencyLabel(currency) + " "
     + formatMoneyInput(amountText(Math.abs(amount), currency) || "0", currency);
   const safe = (text: string) => text.replace(/\r\n?/g, "\n").replace(/[\x00-\x09\x0b-\x1f]/g, " ");
   const plain = (text: string, size: number, x: number, y: number, align: "left" | "right" = "left") => {
-    pdf.setFont("DejaVuSans", "normal"); pdf.setFontSize(size); pdf.setTextColor(0);
+    pdf.setFont(needsFallback(text) ? fallbackFont : primaryFont, "normal"); pdf.setFontSize(size); pdf.setTextColor(0);
     pdf.text(safe(text), x, y, { align });
   };
   const heading = (text: string, size: number, y: number) => {
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(size); pdf.setTextColor(0);
+    pdf.setFont(boldFont, "bold"); pdf.setFontSize(size); pdf.setTextColor(0);
     pdf.text(text, left, y);
   };
 
@@ -50,8 +63,9 @@ export async function createStatement(workspace: Workspace, period: string, curr
   plain(periodLabel(period) + "   /   " + currency + (demo ? "   /   DEMO DATA" : ""), 10, left, 39);
   let cursor = 48;
   if (sheet) {
-    pdf.setFont("DejaVuSans", "normal"); pdf.setFontSize(9);
-    const lines = pdf.splitTextToSize("Finance sheet   " + safe(sheet).replace(/\n/g, " "), right - left) as string[];
+    const caption = "Finance sheet   " + safe(sheet).replace(/\n/g, " ");
+    pdf.setFont(needsFallback(caption) ? fallbackFont : primaryFont, "normal"); pdf.setFontSize(9);
+    const lines = pdf.splitTextToSize(caption, right - left) as string[];
     lines.forEach((line, index) => plain(line, 9, left, 46 + index * 4));
     cursor = 52 + lines.length * 4;
   }
@@ -62,12 +76,16 @@ export async function createStatement(workspace: Workspace, period: string, curr
     autoTable(pdf, {
       theme: "plain", startY: cursor + 3, margin: { left, right: left, top: 17, bottom: 18 },
       head: [head], body: body.map(row => row.map(safe)), foot: summary.map(row => row.map(safe)), columnStyles: columns,
-      styles: { font: "DejaVuSans", textColor: 0, lineColor: 0, lineWidth: 0, fillColor: false,
+      styles: { font: primaryFont, textColor: 0, lineColor: 0, lineWidth: 0, fillColor: false,
         fontSize: 8, cellPadding: { top: 1.7, right: 1.4, bottom: 1.7, left: 1.4 }, overflow: "linebreak" },
-      headStyles: { font: "helvetica", fontStyle: "bold", fillColor: false },
-      footStyles: { font: "DejaVuSans", fontStyle: "normal", fillColor: false },
+      headStyles: { font: boldFont, fontStyle: "bold", fillColor: false },
+      footStyles: { fontStyle: "normal", fillColor: false },
       showHead: "everyPage", showFoot: "lastPage", rowPageBreak: "avoid",
       didParseCell: ({ section, column, cell, row }) => {
+        if (cell.text.some(needsFallback)) {
+          cell.styles.font = fallbackFont;
+          cell.styles.fontStyle = "normal";
+        }
         const col = columns[column.index];
         if (col?.halign) {
           cell.styles.halign = col.halign;
