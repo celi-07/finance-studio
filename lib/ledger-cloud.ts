@@ -43,7 +43,7 @@ export async function upsertCloud<K extends Collection>(supabase: SupabaseClient
   if (error) throw writeIssue(error, "Couldn’t save this change. Try again in a moment.");
 }
 
-export async function deleteCloud(supabase: SupabaseClient, userId: string, collection: Collection, id: string) {
-  const { error } = await supabase.from(collection).delete().eq("user_id", userId).eq("id", id);
+export async function deleteCloud(supabase: SupabaseClient, userId: string, collection: Collection, id: string, paymentGroup?: string) {
+  const { error } = await supabase.from(collection).delete().eq("user_id", userId).eq(paymentGroup ? "payment_group_id" : "id", paymentGroup ?? id);
   if (error) throw writeIssue(error, "Couldn’t delete this entry. Try again in a moment.");
 }

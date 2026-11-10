@@ -7,7 +7,7 @@ import {
   Check, ChevronDown, FileClock, HandCoins, Landmark, Layers3, ListFilter, Plus, Search, ShoppingBag, TicketCheck, Users, WalletCards, type LucideIcon,
 } from "lucide-react";
 import {
-  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, inPeriod, monthLabel, periodLabel, periodReport, reimbursementReport, shiftMonth, today, workspaceForBook,
+  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, inPeriod, monthLabel, paymentKey, periodLabel, periodReport, reimbursementReport, shiftMonth, today, workspaceForBook,
   type Activity, type Currency, type Kind, type Receipt, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, ActivityRow, Empty, palette } from "./ledger-ui";
@@ -236,6 +236,7 @@ export function Reimbursements({ workspace, period, currency, selectedPeople, on
   const format = (amount: number) => money(amount, currency);
   const [status, setStatus] = useState("All");
   const report = reimbursementReport(workspace, period, selectedPeople);
+  const paymentCount = new Set(report.receipts.map(paymentKey)).size;
   const canReceive = new Set(claims(workspace).filter(claim => claim.remaining > 0 && claim.entry.occurred_on <= today()).map(claim => claim.key));
   const matching = report.claims.filter(claim => status === "All" || status === claim.status)
     .toSorted((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0) || b.entry.occurred_on.localeCompare(a.entry.occurred_on));
@@ -243,7 +244,7 @@ export function Reimbursements({ workspace, period, currency, selectedPeople, on
   return <>
     <div className="metric-grid">
       <Metric title="Outstanding at period end" value={format(report.outstanding)} hint="Includes earlier unpaid claims" tone="amber" icon={HandCoins} period={period}/>
-      <Metric title="Received this period" value={format(report.collected)} hint={report.receipts.length + (report.receipts.length === 1 ? " payment" : " payments")} tone="mint" icon={TicketCheck} period={period}/>
+      <Metric title="Received this period" value={format(report.collected)} hint={paymentCount + (paymentCount === 1 ? " payment" : " payments")} tone="mint" icon={TicketCheck} period={period}/>
       <Metric title="Open claims" value={report.claims.filter(claim => claim.remaining).length} hint={report.claims.filter(claim => claim.overdue).length + " overdue at reporting date"} tone="orchid" icon={FileClock} period={period}/>
     </div>
     <div className="claim-filters">

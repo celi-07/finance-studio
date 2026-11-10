@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Download, HandCoins, Pencil, Plus, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Download, HandCoins, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import {
-  accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, isCurrency, money, newId, parseDate, parseMoney, today,
-  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Valuation, type Workspace,
+  accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, formatMoneyInput, isCurrency, money, newId, parseDate, parseMoney, today,
+  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, Field, Modal, MoneyInput, palette } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
@@ -40,10 +40,12 @@ export function TaskForm({ title, subtitle, close, submit, label, children, disa
 const value = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
 
 export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }: {
-  workspace: Workspace; initialClaim?: string; incomeId?: string; close: () => void; save: Save;
+  workspace: Workspace; initialClaim?: string; incomeId?: string; close: () => void; save: (receipts: Receipt[]) => Promise<void>;
 }) {
   const [id] = useState(newId);
   const [selection, setSelection] = useState(initialClaim ?? "");
+  const [extras, setExtras] = useState<{ key: string; id: string }[]>([]);
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [mode, setMode] = useState(incomeId ? "link" : "record");
   const [incomeSelection, setIncomeSelection] = useState(incomeId ?? "");
   const [paymentDate, setPaymentDate] = useState(today);
@@ -62,6 +64,14 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
     .toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on)) : [];
   const income = eligibleIncome.find(entry => entry.id === incomeSelection);
   const linking = mode === "link";
+  const selected = claim ? [{ key: claim.key, id }, ...extras].map(item => ({
+    ...item, claim: openClaims.find(open => open.key === item.key),
+  })) : [];
+  const nextClaims = openClaims.filter(item => !selected.some(row => row.key === item.key) &&
+    currencyForAccount(workspace, item.entry.account_id) === currency);
+  const firstPaymentDate = selected.reduce((date, row) => row.claim && row.claim.entry.occurred_on > date ? row.claim.entry.occurred_on : date, "");
+  const paymentTotal = selected.reduce((sum, row) => sum + (row.key in amounts ? parseMoney(amounts[row.key], currency) ?? 0 : row.claim?.remaining ?? 0), 0);
+  const setAmount = (key: string, amount: string) => setAmounts(current => ({ ...current, [key]: amount }));
   const defaultDeposit = accounts.find(account => account.id === claim?.entry.account_id)?.id ?? "";
   const deposit = accounts.find(account => account.id === (linking ? income?.account_id : depositId ?? defaultDeposit));
   const receivedOn = linking ? income?.occurred_on : paymentDate;
@@ -71,24 +81,33 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
     const receipt = { id, expense_id: claim.entry.id, claim_id: claim.id };
     if (linking) {
       if (!income) throw Error("Choose an eligible income entry.");
-      await save("reimbursement_receipts", [{ ...receipt, income_entry_id: income.id, account_id: income.account_id,
+      await save([{ ...receipt, income_entry_id: income.id, account_id: income.account_id,
         received_on: income.occurred_on, amount_minor: income.amount_minor, notes: income.notes }]);
       return;
     }
-    const amount = parseMoney(value(data, "amount"), currency);
     const date = parseDate(value(data, "date"));
-    const account = accounts.find(item => item.id === value(data, "account"));
-    if (!amount || amount > claim.remaining) throw Error("Enter a positive amount up to " + money(claim.remaining, currency) + ".");
-    if (!date || date < claim.entry.occurred_on || date > today()) throw Error("Choose a payment date from the expense date through today.");
-    if (!account) throw Error("Choose a deposit account.");
-    await save("reimbursement_receipts", [{ ...receipt, account_id: account.id, received_on: date, amount_minor: amount, notes: value(data, "notes") }]);
+    if (!date || date < firstPaymentDate || date > today()) throw Error("Choose a payment date on or after every selected expense date, through today.");
+    if (!deposit) throw Error("Choose a deposit account.");
+    const notes = value(data, "notes");
+    const receipts = selected.map((row, index) => {
+      if (!row.claim) throw Error("A selected claim is no longer outstanding.");
+      const amount = parseMoney(value(data, index === 0 ? "amount" : "amount-" + row.id), currency);
+      if (!amount || amount > row.claim.remaining) throw Error("Enter a positive amount up to " + money(row.claim.remaining, currency) + " for " + row.claim.entry.description + ".");
+      return {
+        id: row.id, expense_id: row.claim.entry.id, claim_id: row.claim.id,
+        account_id: deposit.id, received_on: date, amount_minor: amount, notes,
+        ...(selected.length > 1 ? { payment_group_id: id } : {}),
+      };
+    });
+    if (!Number.isSafeInteger(receipts.reduce((sum, row) => sum + row.amount_minor, 0))) throw Error("The combined payment amount is too large.");
+    await save(receipts.toSorted((a, b) => a.expense_id.localeCompare(b.expense_id) || a.claim_id.localeCompare(b.claim_id)));
   }
   return <TaskForm title={incomeId ? "Link to reimbursement" : "Reimbursement payment"}
-    subtitle="Apply a payment to the person who owes you." close={close} submit={submit} label={linking ? "Link payment" : "Record payment"}
+    subtitle="Apply one deposit to one or more outstanding claims." close={close} submit={submit} label={linking ? "Link payment" : "Record payment"}
     disabled={!claim || (linking && !income) || (!linking && !accounts.length)}>
     {!openClaims.length && <p className="full muted">There are no outstanding reimbursements on this sheet.</p>}
     {!!openClaims.length && <Field label="Reimbursement" full><Picker label="Reimbursement" value={selection}
-      onValueChange={key => { setSelection(key); setIncomeSelection(incomeId ?? ""); setPaymentDate(today()); setDepositId(null); }}
+      onValueChange={key => { setSelection(key); setExtras([]); setAmounts({}); setIncomeSelection(incomeId ?? ""); setPaymentDate(today()); setDepositId(null); }}
       options={[{ value: "", label: "Choose reimbursement" }, ...openClaims.map(item => ({
         value: item.key, label: item.counterparty + " · " + item.entry.description + " · " + money(item.remaining, currencyForAccount(workspace, item.entry.account_id)),
       }))]}/></Field>}
@@ -96,7 +115,7 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
       <div className="payment-summary full"><HandCoins size={21}/><div><small>Amount outstanding</small><strong>{money(claim.remaining, currency)}</strong></div></div>
       {!incomeId && <fieldset className="reimbursement-choice full"><legend>Payment source</legend>
         <label><input type="radio" checked={!linking} onChange={() => setMode("record")} name="payment-source"/>Record a payment</label>
-        <label><input type="radio" checked={linking} onChange={() => setMode("link")} name="payment-source"/>Link existing income</label>
+        <label><input type="radio" checked={linking} disabled={!!extras.length} onChange={() => setMode("link")} name="payment-source"/>Link existing income</label>
       </fieldset>}
       {linking ? <>
         {!!eligibleIncome.length && <Field label="Income entry" full hint="The original deposit will be shown as a reimbursement payment.">
@@ -106,8 +125,34 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
             }))]}/></Field>}
         {!eligibleIncome.length && <p className="full muted">{incomeId ? "This income entry does not match this claim’s currency, dates, or outstanding amount." : "No unlinked income matches this claim’s currency, dates, and outstanding amount."}</p>}
       </> : <div className="form-grid payment-fields full" key={claim.key}>
-        <Field label={`Amount received (${currencyLabel(currency)})`}><MoneyInput currency={currency} name="amount" placeholder={amountText(claim.remaining, currency)} required /></Field>
-        <Field label="Date received"><DatePicker label="Date received" name="date" value={paymentDate} onChange={setPaymentDate} min={claim.entry.occurred_on} max={today()} required/></Field>
+        {selected.length === 1 ? <Field label={`Amount received (${currencyLabel(currency)})`}><MoneyInput currency={currency} name="amount"
+          defaultValue={formatMoneyInput(amounts[claim.key] ?? amountText(claim.remaining, currency), currency)} onChange={event => setAmount(claim.key, event.target.value)} required /></Field>
+          : <fieldset className="payment-allocations full">
+            <legend>Apply deposit to claims</legend>
+            {selected.map((row, index) => row.claim && <div className="payment-allocation" key={row.id}>
+              <Field label={row.claim.counterparty + " · " + row.claim.entry.description} hint={"Outstanding " + money(row.claim.remaining, currency)}>
+                <MoneyInput currency={currency} name={index === 0 ? "amount" : "amount-" + row.id}
+                  defaultValue={formatMoneyInput(amounts[row.key] ?? amountText(row.claim.remaining, currency), currency)}
+                  onChange={event => setAmount(row.key, event.target.value)} required/>
+              </Field>
+              {index > 0 && <button type="button" className="icon-button" aria-label={"Remove " + row.claim.entry.description + " for " + row.claim.counterparty}
+                onClick={() => {
+                  setExtras(current => current.filter(item => item.id !== row.id));
+                  setAmounts(current => Object.fromEntries(Object.entries(current).filter(([key]) => key !== row.key)));
+                }}><X size={17}/></button>}
+            </div>)}
+            <div className="payment-total" aria-live="polite"><span>Total deposit</span><strong>{money(paymentTotal, currency)}</strong></div>
+          </fieldset>}
+        <Field label="Date received"><DatePicker label="Date received" name="date" value={paymentDate} onChange={setPaymentDate} min={firstPaymentDate} max={today()} required/></Field>
+        {!!nextClaims.length && <Field label="Add another claim" full><Picker label="Add another claim" value=""
+          onValueChange={key => {
+            if (!key) return;
+            const allocation = { key, id: newId() };
+            setExtras(current => [...current, allocation]);
+          }}
+          options={[{ value: "", label: "Choose another reimbursement" }, ...nextClaims.map(item => ({
+            value: item.key, label: item.counterparty + " · " + item.entry.description + " · " + money(item.remaining, currency),
+          }))]}/></Field>}
         <Field label="Deposit account" full><Picker label="Deposit account" name="account" value={depositId ?? defaultDeposit} onValueChange={setDepositId}
           options={[{ value: "", label: "Choose account" }, ...accounts.map(account => ({ value: account.id, label: account.name }))]}/></Field>
         <Field label="Notes (optional)" full><textarea name="notes" rows={2}/></Field>

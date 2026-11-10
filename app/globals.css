@@ -512,6 +512,12 @@ strong { font-weight: 660; }
 .goal-amount { grid-column: span 2; }
 .goal-empty { display: flex; gap: 7px; align-items: center; }
 .form-grid.payment-fields { padding-inline: 0; }
+.payment-allocations { min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 10px; }
+.payment-allocations legend { padding-inline: 4px; font-size: .83rem; font-weight: 650; }
+.payment-allocation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.payment-allocation .field { grid-column: 1; overflow-wrap: anywhere; }
+.payment-allocation:not(:has(button)) .field { grid-column: 1 / -1; }
+.payment-total { display: flex; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .history-note { margin-top: 12px; padding: 10px 13px; border-inline-start: 3px solid var(--tone-amber); border-radius: 8px; background: var(--wash-peach); color: var(--ink); font-size: .86rem; }
 .entry-mode .history-note { margin: 16px 20px 0; }
 .day-popover { width: 316px; }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { isAuthError } from "@supabase/supabase-js";
 import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal, Sparkles } from "lucide-react";
-import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, entryClaims, isCurrency, money, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Receipt, type SavingsGoal, type Workspace } from "@/lib/ledger";
+import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, entryClaims, inPeriod, isCurrency, money, paymentKey, today, workspaceForBook, workspaceForCurrency, type Activity, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Receipt, type SavingsGoal, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { deleteCloud, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
 import type { CloudConfig } from "@/lib/ledger-cloud-config";
@@ -251,21 +251,25 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     }
     await removeRecord("transactions", entry.id, "Entry deleted");
   }
-  async function removeRecord(collection: "transactions" | "reimbursement_receipts", id: string, message: string) {
+  async function removeRecord(collection: "transactions" | "reimbursement_receipts", id: string, message: string, paymentGroup?: string) {
     if (saving.current) throw Error("Another change is being saved. Try again in a moment.");
     const currentOwner = owner.current;
     if (configured && !currentOwner) throw Error("Sign in before deleting.");
     saving.current = true;
     try {
-      if (cloud && currentOwner) await deleteCloud(getSupabase(cloud), currentOwner, collection, id);
+      if (cloud && currentOwner) await deleteCloud(getSupabase(cloud), currentOwner, collection, id, paymentGroup);
       if (currentOwner !== owner.current) throw Error("Your account changed while deleting.");
-      const next = { ...dataRef.current, [collection]: dataRef.current[collection].filter(row => row.id !== id) };
+      const next = { ...dataRef.current, [collection]: dataRef.current[collection].filter(row =>
+        paymentGroup ? !("payment_group_id" in row && row.payment_group_id === paymentGroup) : row.id !== id) };
       if (!configured) writeDemo(next);
       update(next);
       setNotice(message);
     } finally { saving.current = false; }
   }
   const currentReceipt = panel?.type === "receipt" || panel?.type === "delete-receipt" ? panel.receipt : null;
+  const paymentRows = currentReceipt ? data.reimbursement_receipts.filter(row => paymentKey(row) === paymentKey(currentReceipt)) : [];
+  const paymentAmount = paymentRows.reduce((sum, row) => sum + row.amount_minor, 0);
+  const groupedPayment = paymentRows.length > 1;
   const receiptExpense = currentReceipt && data.transactions.find(entry => entry.id === currentReceipt.expense_id);
   const receiptPerson = receiptExpense && currentReceipt && entryClaims(receiptExpense).find(person => person.id === (currentReceipt.claim_id ?? receiptExpense.id));
   async function removeGoal(goal: SavingsGoal) {
@@ -400,17 +404,27 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     {panel?.type === "book" && <BookDialog book={panel.book} books={data.finance_books} close={close} onSave={async book => { await save("finance_books", [book]); selectSheet(book.id); }}/>}
     {panel?.type === "manage" && <ManagementDialog workspace={bookData} edit={panel.edit} initialCurrency={currency} close={close}
       save={(collection, rows) => save(collection, rows.map(row => ({ ...row, ledger_id: currentSheet.id || null })) as typeof rows)}/>}
-    {panel?.type === "receive" && <ReceiptDialog workspace={bookData} initialClaim={panel.id} incomeId={panel.incomeId} close={close} save={save}/>}
+    {panel?.type === "receive" && <ReceiptDialog workspace={bookData} initialClaim={panel.id} incomeId={panel.incomeId} close={close} save={async receipts => {
+      await save("reimbursement_receipts", receipts);
+      if (route === "reimbursements" && !inPeriod(receipts[0].received_on, period)) setMonth(receipts[0].received_on.slice(0, 7));
+      setNotice(receipts[0].income_entry_id ? "Payment linked" : "Payment recorded");
+    }}/>}
     {panel?.type === "value" && <ValueDialog workspace={bookData} accountId={panel.id} close={close} save={save}/>}
     {panel?.type === "delete" && <TaskForm title="Delete this entry?" subtitle={panel.entry.description + " · " + money(panel.entry.amount_minor, currencyForAccount(data, panel.entry.account_id))} close={close} submit={() => removeEntry(panel.entry)} label="Delete entry">
       <p className="full muted">This permanently removes the entry and updates the related balances.</p>
     </TaskForm>}
-    {panel?.type === "receipt" && <Modal title="Reimbursement payment" subtitle={receiptExpense?.description} onClose={close}>
+    {panel?.type === "receipt" && <Modal title="Reimbursement payment" subtitle={groupedPayment ? paymentRows.length + " claims" : receiptExpense?.description} onClose={close}>
       <dl className="compact-details receipt-detail">
-        {receiptPerson && <div><dt>Paid by</dt><dd>{receiptPerson.counterparty}</dd></div>}
+        {!groupedPayment && receiptPerson && <div><dt>Paid by</dt><dd>{receiptPerson.counterparty}</dd></div>}
         <div><dt>Received</dt><dd>{dayLabel(panel.receipt.received_on)}</dd></div>
         <div><dt>Account</dt><dd>{accountName(data, panel.receipt.account_id)}</dd></div>
-        <div><dt>Amount</dt><dd>{money(panel.receipt.amount_minor, currencyForAccount(data, panel.receipt.account_id))}</dd></div>
+        <div><dt>Amount</dt><dd>{money(paymentAmount, currencyForAccount(data, panel.receipt.account_id))}</dd></div>
+        {groupedPayment && paymentRows.map(row => {
+          const expense = data.transactions.find(entry => entry.id === row.expense_id);
+          const share = expense && entryClaims(expense).find(item => item.id === (row.claim_id ?? expense.id));
+          return <div key={row.id}><dt>{[share?.counterparty, expense?.description].filter(Boolean).join(" · ")}</dt>
+            <dd>{money(row.amount_minor, currencyForAccount(data, row.account_id))}</dd></div>;
+        })}
         {panel.receipt.notes && <div><dt>Notes</dt><dd>{panel.receipt.notes}</dd></div>}
       </dl>
       <div className="modal-footer"><button className="button danger quiet push" onClick={() => setPanel({ type: "delete-receipt", receipt: panel.receipt })}>
@@ -418,11 +432,12 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       </button><button className="button secondary" onClick={close}>Done</button></div>
     </Modal>}
     {panel?.type === "delete-receipt" && <TaskForm title={panel.receipt.income_entry_id ? "Unlink this payment?" : "Delete this payment?"}
-      subtitle={money(panel.receipt.amount_minor, currencyForAccount(data, panel.receipt.account_id)) + (receiptPerson ? " · " + receiptPerson.counterparty : "")}
+      subtitle={money(paymentAmount, currencyForAccount(data, panel.receipt.account_id)) + (groupedPayment ? " · " + paymentRows.length + " claims" : receiptPerson ? " · " + receiptPerson.counterparty : "")}
       close={close} label={panel.receipt.income_entry_id ? "Unlink payment" : "Delete payment"}
-      submit={() => removeRecord("reimbursement_receipts", panel.receipt.id, panel.receipt.income_entry_id ? "Payment unlinked" : "Payment deleted")}>
+      submit={() => removeRecord("reimbursement_receipts", panel.receipt.id, panel.receipt.income_entry_id ? "Payment unlinked" : "Payment deleted", panel.receipt.payment_group_id ?? undefined)}>
       <p className="full muted">{panel.receipt.income_entry_id
         ? "The original income entry will return to Transactions, and the amount owed will increase."
+        : groupedPayment ? "This removes the whole deposit and restores the outstanding amount on each claim."
         : "The amount owed will increase. The cash balance is recalculated from the account’s tracking date."}</p>
     </TaskForm>}
     {panel?.type === "reset" && <TaskForm title="Reset demo data?" subtitle="This replaces the entries and settings saved in this browser with the original fictional data." close={close} label="Reset demo"
