@@ -5,6 +5,7 @@ import { ArrowRight, ChartNoAxesCombined, Layers3, LockKeyhole, Sheet } from "lu
 import { getSupabase } from "@/lib/ledger-cloud";
 import type { CloudConfig } from "@/lib/ledger-cloud-config";
 import { Brand, Field } from "./ledger-ui";
+import { GoogleSignIn } from "./google-sign-in";
 
 export function FinanceWelcome({ demo, onStart }: { demo: boolean; onStart: () => void }) {
   return <main className="welcome">
@@ -97,27 +98,36 @@ export function VerifyEmail({ cloud, email, onSignOut, signOutProblem }: {
   </section></main>;
 }
 
-export function ProviderSignIn({ cloud, aboveEmailSubmit }: { cloud: CloudConfig; aboveEmailSubmit?: boolean }) {
-  const [pending, setPending] = useState<"google" | "apple" | null>(null);
+export function ProviderSignIn({ cloud, aboveEmailSubmit, disabled, onBusyChange }: {
+  cloud: CloudConfig; aboveEmailSubmit?: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void;
+}) {
+  const [openingApple, setOpeningApple] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
   const [problem, setProblem] = useState("");
-  async function connect(provider: "google" | "apple") {
-    if (pending) return;
-    setPending(provider);
+  const setGoogleBusy = useCallback((busy: boolean) => {
+    setGooglePending(busy);
+    onBusyChange(busy);
+  }, [onBusyChange]);
+  async function connectApple() {
+    if (disabled || openingApple || googlePending) return;
+    setOpeningApple(true);
+    onBusyChange(true);
     setProblem("");
     try {
-      const { error } = await getSupabase(cloud).auth.signInWithOAuth({ provider, options: { redirectTo: window.location.origin + "/" } });
+      const { error } = await getSupabase(cloud).auth.signInWithOAuth({ provider: "apple", options: { redirectTo: window.location.origin + "/" } });
       if (error) throw error;
     } catch {
       setProblem("Couldn’t start sign-in. Try again in a moment.");
-      setPending(null);
+      setOpeningApple(false);
+      onBusyChange(false);
     }
   }
-  const apple = cloud.authMode !== "google" && <button type="button" aria-label="Sign in with Apple" onClick={() => void connect("apple")} disabled={pending !== null}><img src="/apple-sign-in.png" alt=""/></button>;
+  const apple = cloud.authMode !== "google" && <button className="apple-provider" type="button" aria-label="Sign in with Apple" onClick={() => void connectApple()} disabled={disabled || openingApple || googlePending}><img src="/apple-sign-in.png" alt=""/></button>;
   return <div className="provider-sign-in">
     {aboveEmailSubmit && apple}
-    <button type="button" className="button google-provider" aria-label="Sign in with Google" onClick={() => void connect("google")} disabled={pending !== null}><img src="/google-sign-in.png" alt=""/></button>
+    <GoogleSignIn cloud={cloud} disabled={disabled || openingApple} onBusyChange={setGoogleBusy}/>
     {!aboveEmailSubmit && apple}
-    {pending && <p role="status">Opening {pending === "google" ? "Google" : "Apple"}…</p>}
+    {openingApple && <p role="status">Opening Apple…</p>}
     {problem && <p role="alert" className="form-message error">{problem}</p>}
   </div>;
 }

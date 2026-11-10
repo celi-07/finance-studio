@@ -54,6 +54,8 @@ function authMessage(error: unknown, mode: AuthMode) {
 function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { cloud: CloudConfig; recovery: boolean; onRecovered: () => Promise<void>; onBack: () => void; returnError: boolean }) {
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [working, setWorking] = useState(false);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const busy = working || providerBusy;
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const current = recovery ? "recover" : mode;
@@ -61,7 +63,7 @@ function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { clo
   const label = { "sign-in": "Sign in", "sign-up": "Create account", reset: "Send reset link", recover: "Update password" }[current];
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (working) return;
+    if (busy) return;
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "").trim();
     const password = String(form.get("password") ?? "");
@@ -91,20 +93,20 @@ function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { clo
   function switchTo(next: AuthMode) { setMode(next); setMessage(""); setError(""); }
   return <main className="auth-screen"><section className="panel auth-panel"><div className="auth-top">
     {current !== "recover" && <button type="button" className="icon-button" aria-label={current === "sign-in" ? "Back to home" : "Back to sign in"}
-      onClick={current === "sign-in" ? onBack : () => switchTo("sign-in")}><ArrowLeft size={20} aria-hidden="true"/></button>}<Brand/></div>
+      disabled={busy} onClick={current === "sign-in" ? onBack : () => switchTo("sign-in")}><ArrowLeft size={20} aria-hidden="true"/></button>}<Brand/></div>
     <h1>{title}</h1><p>{cloud.authMode === "oauth" ? "Use your Google or Apple account to get started." : current === "sign-up" ? "Use your email to create an account." : "Manage your finances in one place."}</p>
     {returnError && <p className="form-message error" role="alert">Sign-in was interrupted. Choose a sign-in method to try again.</p>}
-    {cloud.authMode === "oauth" && current === "sign-in" && <ProviderSignIn cloud={cloud}/>}
+    {cloud.authMode === "oauth" && current === "sign-in" && <ProviderSignIn cloud={cloud} disabled={working} onBusyChange={setProviderBusy}/>}
     {cloud.authMode !== "oauth" && <form onSubmit={submit}>
       {current !== "recover" && <Field label="Email"><input required name="email" type="email" autoComplete={current === "reset" ? "email" : "username"}/></Field>}
       {current !== "reset" && <Field label={current === "recover" ? "New password" : "Password"}><input required name="password" type="password" minLength={current === "sign-in" ? undefined : 8} autoComplete={current === "sign-in" ? "current-password" : "new-password"}/></Field>}
       {error && <p className="form-message error" role="alert">{error}</p>}{message && <p className="form-message success" role="status">{message}</p>}
-      {cloud.authMode && current === "sign-in" && <ProviderSignIn cloud={cloud} aboveEmailSubmit/>}
-      <button className="button primary" disabled={working}>{working ? "Working…" : label}</button>
+      {cloud.authMode && current === "sign-in" && <ProviderSignIn cloud={cloud} aboveEmailSubmit disabled={working} onBusyChange={setProviderBusy}/>}
+      <button className="button primary" disabled={busy}>{working ? "Working…" : label}</button>
     </form>}
     {cloud.authMode !== "oauth" && current === "sign-in" && <div className="auth-links">
-      <button className="button quiet" disabled={working} onClick={() => switchTo("reset")}>Forgot password?</button>
-      <button className="button quiet" disabled={working} onClick={() => switchTo("sign-up")}>Create account</button>
+      <button className="button quiet" disabled={busy} onClick={() => switchTo("reset")}>Forgot password?</button>
+      <button className="button quiet" disabled={busy} onClick={() => switchTo("sign-up")}>Create account</button>
     </div>}
   </section></main>;
 }

@@ -1,4 +1,4 @@
-export type CloudConfig = { url: string; key: string; authMode?: "google" | "transition" | "oauth" };
+export type CloudConfig = { url: string; key: string; authMode?: "google" | "transition" | "oauth"; googleClientId?: string };
 
 function isPublicKey(key: string) {
   if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(key)) return true;
@@ -25,10 +25,13 @@ export function readCloudConfig(rawUrl?: string, rawKey?: string): CloudConfig |
   return { url, key };
 }
 
-export function configuredCloud(env: Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY" | "FINANCE_AUTH_MODE">): CloudConfig | null {
+export function configuredCloud(env: Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY" | "FINANCE_AUTH_MODE" | "GOOGLE_CLIENT_ID">): CloudConfig | null {
   const cloud = env.SUPABASE_URL?.trim() || env.SUPABASE_PUBLISHABLE_KEY?.trim()
     ? readCloudConfig(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY)
     : readCloudConfig(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
   const authMode = (env.FINANCE_AUTH_MODE ?? process.env.FINANCE_AUTH_MODE)?.trim();
-  return cloud && (authMode === "google" || authMode === "transition" || authMode === "oauth") ? { ...cloud, authMode } : cloud;
+  if (!cloud || (authMode !== "google" && authMode !== "transition" && authMode !== "oauth")) return cloud;
+  const clientId = (env.GOOGLE_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID)?.trim() ?? "";
+  const googleClientId = /^[\w-]+\.apps\.googleusercontent\.com$/.test(clientId) ? clientId : undefined;
+  return { ...cloud, authMode, googleClientId };
 }

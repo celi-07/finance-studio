@@ -7,18 +7,21 @@ function documentPolicy(env: Cloudflare.Env) {
   const random = crypto.getRandomValues(new Uint8Array(16));
   const nonce = btoa(String.fromCharCode(...random));
   let projectOrigin = "";
+  let googleSignIn = false;
   try {
     const cloud = configuredCloud(env);
     if (cloud) projectOrigin = ` ${new URL(cloud.url).origin}`;
+    googleSignIn = Boolean(cloud?.googleClientId);
   } catch {
     // Invalid configuration renders the connection screen with same-origin access only.
   }
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'`,
-    "style-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'nonce-${nonce}'${googleSignIn ? " https://accounts.google.com/gsi/client" : ""}`,
+    `style-src 'self' 'unsafe-inline'${googleSignIn ? " https://accounts.google.com/gsi/style" : ""}`,
     "img-src 'self' data:",
-    `connect-src 'self'${projectOrigin}`,
+    `connect-src 'self'${projectOrigin}${googleSignIn ? " https://accounts.google.com/gsi/" : ""}`,
+    googleSignIn ? "frame-src https://accounts.google.com/gsi/" : "frame-src 'self'",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -70,6 +73,7 @@ const worker = {
     headers.set("Referrer-Policy", "no-referrer");
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("X-Frame-Options", "DENY");
+    headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
     headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     headers.set("Cache-Control", "private, no-store");
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
