@@ -261,6 +261,8 @@ strong { font-weight: 660; }
 .claim-card .button { margin-top: 12px; }
 .receipt-list { font-size: .8rem; margin-top: 12px; }
 .receipt-list summary { cursor: pointer; font-weight: 640; }
+.receipt-list[open] > summary { margin-bottom: 9px; }
+.receipt-list > button + button { margin-top: 6px; }
 .receipt-list > button, .compact-details > div { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .receipt-list > button { width: 100%; align-items: center; min-height: 38px; text-align: start; color: var(--ink); background: transparent; border-radius: 8px; padding-inline: 7px; }
 .receipt-list > button > span { margin-inline-end: auto; }
@@ -282,7 +284,7 @@ strong { font-weight: 660; }
 .modal::backdrop { background: #10172568; }
 .modal-wide { width: min(1140px, calc(100% - 26px)); }
 .modal-header { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 19px 20px 14px; }
-.modal-wide .modal-header { background: linear-gradient(115deg, color-mix(in srgb, var(--wash-orchid) 62%, var(--surface)), var(--surface) 84%); }
+.modal-header.modal-header-accent { background: linear-gradient(115deg, color-mix(in srgb, var(--wash-orchid) 62%, var(--surface)), var(--surface) 84%); }
 .modal-header h2 { font-size: 1.42rem; }
 .modal-header p { color: var(--muted); margin-top: 2px; font-size: .86rem; }
 .modal-footer { display: flex; flex-wrap: wrap; justify-content: end; align-items: center; gap: 8px; border-top: 1px solid var(--line); margin-top: 14px; padding: 13px 20px; }
@@ -306,12 +308,16 @@ strong { font-weight: 660; }
 .entry-grid { border-collapse: collapse; background: var(--surface); width: max-content; min-width: 100%; font-size: .8rem; }
 .entry-grid th, .entry-grid td { text-align: start; vertical-align: top; border: 1px solid var(--line); min-width: 124px; padding: 4px 5px; }
 .entry-grid th:first-child, .entry-grid td:last-child { min-width: 35px; width: 35px; }
+.entry-grid th:first-child { min-width: 57px; }
+.sheet-row-label { display: flex; gap: 4px; align-items: center; justify-content: space-between; }
+.sheet-row-label .icon-button { width: 26px; min-height: 28px; padding: 0; }
 .entry-grid th.col-description, .entry-grid th.col-notes { min-width: 168px; }
 .entry-grid thead { position: sticky; top: 0; z-index: 1; background: var(--control); }
 .entry-grid th { padding-block: 8px; }
 .entry-grid th[title] { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 .entry-grid input { min-height: 36px; padding: 4px 6px; }
 .sheet-cell { position: relative; }
+.person-input { display: block; }
 .sheet-cell:has(.cell-choice) > input { padding-inline-end: 34px; }
 .cell-choice { position: absolute; inset-inline-end: 3px; top: 50%; transform: translateY(-50%); width: 27px; height: 27px;
   padding: 0; display: grid; place-items: center; border: 0; border-radius: 7px; background: var(--control); color: var(--accent); }
@@ -458,7 +464,7 @@ strong { font-weight: 660; }
 .guide-steps p { color: var(--muted); margin-top: 5px; font-size: .88rem; }
 .metric > strong { display: block; width: fit-content; max-width: 100%; color: var(--semantic-ink); font-variant-numeric: tabular-nums; }
 .claim-group { margin-top: 19px; }
-.claim-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.claim-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
 .claim-card { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 11px 24px; align-items: center; }
 .claim-card .claim-title { margin-top: 4px; }
 .claim-card .claim-amount { margin: 0; }

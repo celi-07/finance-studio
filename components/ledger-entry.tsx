@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import { ChevronDown, CircleAlert, HandCoins, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, CircleAlert, HandCoins, ListPlus, Plus, Trash2 } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import {
   accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, validateFormEntry, workspaceForCurrency,
-  maxReimbursementPeople, newId, type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type ReimbursementDraft, type ReimbursementMode, type Workspace,
+  fullReimbursement, maxReimbursementPeople, newId, type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type ReimbursementDraft, type ReimbursementMode, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
@@ -28,6 +28,18 @@ function changeKind(workspace: Workspace, draft: EntryDraft, kind: string) {
     account_id: editableAccounts(workspace, kind).some(account => account.id === draft.account_id) ? draft.account_id : "",
     destination_account_id: null };
 }
+const savedPeople = (workspace: Workspace) => workspace.reimbursement_people.filter(person => !person.archived)
+  .toSorted((a, b) => a.name.localeCompare(b.name)).map(person => ({ value: person.name, label: person.name }));
+
+function PersonInput({ options, value, invalid, onChange }: {
+  options: ReturnType<typeof savedPeople>; value: string; invalid: boolean; onChange: (name: string) => void;
+}) {
+  return <span className="sheet-cell person-input">
+    <input value={value} maxLength={160} aria-invalid={invalid} onChange={event => onChange(event.target.value)}/>
+    {!!options.length && <Picker compact label="Choose a saved person" options={options} value={value} onValueChange={onChange}/>}
+  </span>;
+}
+
 function SpreadsheetChoice({ workspace, row, column, field, text, label, choose }: {
   workspace: Workspace; row: EntryDraft; column: string; field?: Definition; text: string; label: string; choose: (value: string) => void;
 }) {
@@ -57,7 +69,11 @@ function SpreadsheetChoice({ workspace, row, column, field, text, label, choose 
       .filter(account => !destination || account.id !== row.account_id && (!source || accountCurrency(account) === accountCurrency(source)))
       .map(account => ({ value: account.name, label: account.name + " · " + accountCurrency(account) }));
     if (!options.length) options = [{ value: "__unavailable__", label: "No eligible accounts for this row", disabled: true }];
-  } else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
+  } else if (column === "reimbursable" && (!knownType || row.kind === "expense")) {
+    selection = text.trim().toLowerCase() === "full" ? fullReimbursement : text;
+    options = [{ value: fullReimbursement, label: "Full expense amount" }, { value: "", label: "No reimbursement" }];
+  } else if (column === "counterparty" && (!knownType || row.kind === "expense")) options = savedPeople(workspace);
+  else if (field?.field_type === "select") options = field.options.map(label => ({ value: label, label }));
   else if (field?.field_type === "checkbox") options = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
   return options.length ? <Picker compact label={label} options={options} value={selection} onValueChange={choose}/> : null;
 }
@@ -82,6 +98,7 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
   currency: Currency; original?: Entry; errors: Record<string, string>; claim: ReimbursementMode; setClaim: (claim: ReimbursementMode) => void; lockCurrency?: boolean;
 }) {
   const fields = activeFields(workspace);
+  const people = savedPeople(workspace);
   const entryCurrency = draft.account_id ? currencyForAccount(workspace, draft.account_id) : currency;
   const unit = currencyLabel(entryCurrency);
   const activeCategories = workspace.categories.filter(category => category.applicable_kind === draft.kind && (!category.archived || original?.category_id === category.id));
@@ -126,7 +143,7 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
               ]);
               setClaim(value);
             }} name="reimbursement-mode"/>
-            <span>{["None", "Partial", "Full", "Split by person"][index]}</span>
+            <span>{["None", "Partial", "Full amount", "Split by person"][index]}</span>
           </label>)}
           {claim === "none" && errors.reimbursable && <small className="field-error full" role="alert">{errors.reimbursable}</small>}
         </fieldset>}
@@ -134,8 +151,8 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
           <p className="muted">Give each person their own amount and optional due date. Shares can cover part or all of this expense.</p>
           {draft.people?.map((person, index) => <fieldset className="reimbursement-person form-grid" key={person.id}>
             <legend>Person {index + 1}</legend>
-            <Field label="Owed by" error={errors[person.id + "-person"]}><input value={person.counterparty} maxLength={160}
-              aria-invalid={!!errors[person.id + "-person"]} onChange={event => updatePerson(person.id, { counterparty: event.target.value })}/></Field>
+            <Field label="Owed by" error={errors[person.id + "-person"]}><PersonInput options={people} value={person.counterparty}
+              invalid={!!errors[person.id + "-person"]} onChange={counterparty => updatePerson(person.id, { counterparty })}/></Field>
             <Field label={`Share amount (${unit})`} error={errors[person.id + "-amount"]}><input value={person.amount} inputMode="decimal"
               aria-invalid={!!errors[person.id + "-amount"]} onBlur={() => updatePerson(person.id, { amount: formatMoneyInput(person.amount, entryCurrency) })}
               onChange={event => updatePerson(person.id, { amount: event.target.value })}/></Field>
@@ -154,7 +171,8 @@ export function EntryFields({ workspace, draft, setDraft, currency, original, er
             <input value={claim === "full" ? draft.amount : draft.reimbursable} readOnly={claim === "full"} aria-invalid={!!errors.reimbursable} inputMode="decimal" placeholder="0"
               onBlur={() => { if (claim === "partial") set("reimbursable", formatMoneyInput(draft.reimbursable, entryCurrency)); }} onChange={event => set("reimbursable", event.target.value)}/>
           </Field>
-          <Field label="Owed by" error={errors.counterparty}><input value={draft.counterparty} aria-invalid={!!errors.counterparty} onChange={event => set("counterparty", event.target.value)} /></Field>
+          <Field label="Owed by" error={errors.counterparty}><PersonInput options={people} value={draft.counterparty}
+            invalid={!!errors.counterparty} onChange={name => set("counterparty", name)}/></Field>
           <Field label="Due date (optional)" error={errors.due_on}><DatePicker label="Due date" value={draft.due_on ?? ""} invalid={!!errors.due_on} onChange={date => set("due_on", date || null)}/></Field>
         </>}
         {fields.map(definition => <Field key={definition.id} label={definition.label + (definition.required ? " *" : " (optional)")} error={errors[definition.id]}>
@@ -204,7 +222,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     ["account_id", "Account", "The account the money came from, or the account that received income."],
     ["category_id", "Category", "Optional label for an income or expense. The options follow the selected type."],
     ["destination_account_id", "Destination", "Receiving account for a transfer or investment movement. Use the same currency."],
-    ["reimbursable", "Reimbursement (optional)", "Portion of the expense that someone owes you back."],
+    ["reimbursable", "Reimbursement (optional)", "Choose Full to use the expense amount, or enter a partial amount."],
     ["counterparty", "Owed by", "The person or organization paying the reimbursement."],
     ["due_on", "Due date", "Optional deadline for the reimbursement. Leave blank if there is no deadline."],
     ["notes", "Notes", "Optional context to keep with the transaction."],
@@ -294,14 +312,14 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       return next.length ? { row, anchor: next.includes(column) ? column : next.at(-1)!, columns: next } : null;
     });
   }
-  function fillDown(start: number, end: number, selectedColumns: number[]) {
-    if (end <= start) return;
+  function fillFrom(start: number, end: number, selectedColumns: number[]) {
+    if (end === start) return;
     const keys = selectedColumns.toSorted((a, b) => a - b).map(column => columns[column][0]);
     setRows(current => {
       const source = current[start];
       if (!source) return current;
       const cells = keys.map(key => [key, cellText(source, key)] as const);
-      return current.map((row, index) => index > start && index <= end
+      return current.map((row, index) => index !== start && index >= Math.min(start, end) && index <= Math.max(start, end)
         ? cells.reduce((next, [key, value]) => assign(next, key, value), row) : row);
     });
     setRowErrors({});
@@ -319,9 +337,11 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     if (!selection || !grid.current) return;
     const area = grid.current.getBoundingClientRect();
     if (event.clientY > area.bottom - 24) grid.current.scrollTop += 16;
+    else if (event.clientY < area.top + 45) grid.current.scrollTop -= 16;
+    const bodyTop = grid.current.querySelector("thead")?.getBoundingClientRect().bottom ?? area.top;
     const row = document.elementFromPoint(Math.min(area.right - 4, Math.max(area.left + 4, event.clientX)),
-      Math.min(area.bottom - 4, Math.max(area.top + 4, event.clientY)))?.closest<HTMLElement>("tr[data-sheet-row]");
-    const end = row ? Math.max(selection.start, Number(row.dataset.sheetRow)) : selection.end;
+      Math.min(area.bottom - 4, Math.max(bodyTop + 1, event.clientY)))?.closest<HTMLElement>("tr[data-sheet-row]");
+    const end = row ? Number(row.dataset.sheetRow) : selection.end;
     if (end === selection.end) return;
     dragFill.current = { ...selection, end };
     setFill(dragFill.current);
@@ -330,16 +350,24 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     const selection = dragFill.current;
     dragFill.current = null;
     setFill(null);
-    if (selection && commit) fillDown(selection.start, selection.end, selection.columns);
+    if (selection && commit) fillFrom(selection.start, selection.end, selection.columns);
   }
-  function addRows(count: number) {
-    setRows(current => [...current, ...Array.from({ length: Math.min(count, maxRows - current.length) }, makeRow)]);
+  function addRows(count: number, beforeId?: string) {
+    setRows(current => {
+      const before = beforeId ? current.findIndex(row => row.id === beforeId) : current.length;
+      if (before < 0) return current;
+      const inserted = Array.from({ length: Math.min(count, maxRows - current.length) }, makeRow);
+      return [...current.slice(0, before), ...inserted, ...current.slice(before)];
+    });
   }
   function advance(event: KeyboardEvent<HTMLInputElement>, index: number, col: number) {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d" && index > 0) {
+    const copyFromBelow = event.altKey && event.shiftKey && event.key === "ArrowUp";
+    const copyFromAbove = (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "d";
+    const sourceIndex = index + (copyFromBelow ? 1 : -1);
+    if ((copyFromBelow || copyFromAbove) && sourceIndex >= 0 && sourceIndex < rows.length) {
       event.preventDefault();
       const selectedColumns = selected?.row === rows[index].id && selected.columns.includes(col) ? selected.columns : [col];
-      fillDown(index - 1, index, selectedColumns);
+      fillFrom(sourceIndex, index, selectedColumns);
       return;
     }
     if (event.key !== "Enter") return;
@@ -388,17 +416,20 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     catch (error) { setProblem(error instanceof Error ? error.message : "The rows could not be saved."); }
     finally { setWorking(false); }
   }
-  return <Modal title={original ? "Edit entry" : "Add entries"} subtitle={original ? "Update the details in your ledger." : "Choose how to enter your transactions."} onClose={onClose} wide={bulk} locked={working}>
+  return <Modal title={original ? "Edit entry" : "Add entries"} subtitle={original ? "Update the details in your ledger." : "Choose how to enter your transactions."} onClose={onClose} wide={bulk} accentHeader locked={working}>
     {!original && <div className="entry-toolbar"><div className="mode-switch segmented" style={{ "--selection": bulk ? 1 : 0 } as CSSProperties} role="group" aria-label="Entry mode">
       <button type="button" aria-pressed={!bulk} onClick={() => { setBulk(false); setProblem(""); }}>Form</button>
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
     </div>{onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Reimbursement payment</button>}</div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026.</p>
-        <p>Add rows, then drag a cell’s corner to fill down. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from the row above.</p></div>
+        <p>Use the button next to a row number to insert above it. Drag a cell’s corner up or down to fill. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from above, and Alt+Shift+↑ copies from below.</p></div>
       <div className="grid-scroll" ref={bindGrid} tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label, hint]) => <th key={key} scope="col" className={"col-" + key} title={hint} aria-description={hint}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}><th scope="row">{index + 1}</th>
+          <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}><th scope="row">
+            <span className="sheet-row-label">{index + 1}<button type="button" className="icon-button" title="Insert row above"
+              aria-label={"Insert row above row " + (index + 1)} disabled={rows.length >= maxRows || working} onClick={() => addRows(1, row.id)}><ListPlus size={15}/></button></span>
+          </th>
             {columns.map(([key, label], col) => {
               const error = rowErrors[row.id]?.[key];
               const cellSelected = selected?.row === row.id && selected.columns.includes(col);
@@ -407,7 +438,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
               const text = cellText(row, key);
               const rowAccount = monetary ? workspace.accounts.find(account => account.id === row.account_id) : undefined;
               const display = monetary && editingAmount !== amountId ? formatMoneyInput(text, rowAccount ? accountCurrency(rowAccount) : currency) : text;
-              return <td key={key} data-selected={cellSelected || undefined} data-fill={fill && fill.columns.includes(col) && index >= fill.start && index <= fill.end || undefined}>
+              return <td key={key} data-selected={cellSelected || undefined} data-fill={fill && fill.columns.includes(col) && index >= Math.min(fill.start, fill.end) && index <= Math.max(fill.start, fill.end) || undefined}>
               <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error}
                 aria-describedby={error ? "error-" + index + "-" + col : undefined} value={display} required={requiredColumns.has(key)}
                 inputMode={monetary ? "decimal" : undefined} onFocus={monetary ? () => setEditingAmount(amountId) : undefined}
@@ -422,7 +453,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
               <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={cellText(row, key)}
                 label={`Choose ${label} for row ${index + 1}`}
                 choose={value => updateCell(row, key, value)}/>
-              {index < rows.length - 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
+              {rows.length > 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>
               {error && <small className="field-error" id={"error-" + index + "-" + col}>{error}</small>}

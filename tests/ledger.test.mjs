@@ -339,6 +339,15 @@ test("spreadsheet validation requires the five core fields and allows blank cust
   assert.ok(validateEntry(workspace, { ...draft, kind: "transfer" }, { requireCustomFields: false }).errors.destination_account_id);
 });
 
+test("spreadsheet Full reimbursement follows the expense amount and requires the person who owes it", () => {
+  const workspace = setup();
+  const draft = { ...draftFrom(entry("batch", "expense", 35_000)), reimbursable: "Full" };
+  assert.ok(validateEntry(workspace, draft).errors.counterparty);
+  const row = { ...draft, counterparty: "Sam" };
+  assert.equal(validateEntry(workspace, row).entry.reimbursable_minor, 35_000);
+  assert.equal(validateEntry(workspace, { ...row, amount: "250.00" }).entry.reimbursable_minor, 25_000);
+});
+
 test("the assistant extracts Indonesian named dates and edits a draft without guessing between accounts", () => {
   const workspace = setup();
   workspace.accounts[0].name = "BCA";

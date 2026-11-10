@@ -4,14 +4,15 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Download, HandCoins, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import {
   accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, formatMoneyInput, isCurrency, money, newId, parseDate, parseMoney, today,
-  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type Valuation, type Workspace,
+  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type ReimbursementPerson, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, Field, Modal, MoneyInput, palette } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
 import { SectionHeading } from "./ledger-views";
 
 type Save = <K extends Collection>(collection: K, rows: Workspace[K]) => Promise<void>;
-export type Management = { collection: "accounts"; row?: Account } | { collection: "categories"; row?: Category } | { collection: "field_definitions"; row?: Definition };
+export type Management = { collection: "accounts"; row?: Account } | { collection: "categories"; row?: Category } | { collection: "field_definitions"; row?: Definition }
+  | { collection: "reimbursement_people"; row?: ReimbursementPerson };
 const kindLabels = { bank: "Bank account", wallet: "E-wallet", cash: "Cash on hand", investment: "Investment account" };
 const currencyOptions = Object.entries(currencies).map(([value, label]) => ({ value, label: value + " · " + label }));
 const typeLabels: Record<FieldType, string> = { text: "Text", number: "Number", date: "Date", select: "Select", checkbox: "Checkbox" };
@@ -48,7 +49,7 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [mode, setMode] = useState(incomeId ? "link" : "record");
   const [incomeSelection, setIncomeSelection] = useState(incomeId ?? "");
-  const [paymentDate, setPaymentDate] = useState(today);
+  const [paymentDate, setPaymentDate] = useState<string | null>(null);
   const [depositId, setDepositId] = useState<string | null>(null);
   const linked = new Set(workspace.reimbursement_receipts.map(receipt => receipt.income_entry_id));
   const openClaims = claims(workspace).filter(item => item.remaining > 0 && item.entry.occurred_on <= today());
@@ -74,7 +75,8 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
   const setAmount = (key: string, amount: string) => setAmounts(current => ({ ...current, [key]: amount }));
   const defaultDeposit = accounts.find(account => account.id === claim?.entry.account_id)?.id ?? "";
   const deposit = accounts.find(account => account.id === (linking ? income?.account_id : depositId ?? defaultDeposit));
-  const receivedOn = linking ? income?.occurred_on : paymentDate;
+  const recordDate = paymentDate ?? firstPaymentDate;
+  const receivedOn = linking ? income?.occurred_on : recordDate;
   const beforeTracking = deposit && receivedOn && receivedOn < deposit.opening_date;
   async function submit(data: FormData) {
     if (!claim) throw Error("Choose an outstanding reimbursement.");
@@ -107,7 +109,7 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
     disabled={!claim || (linking && !income) || (!linking && !accounts.length)}>
     {!openClaims.length && <p className="full muted">There are no outstanding reimbursements on this sheet.</p>}
     {!!openClaims.length && <Field label="Reimbursement" full><Picker label="Reimbursement" value={selection}
-      onValueChange={key => { setSelection(key); setExtras([]); setAmounts({}); setIncomeSelection(incomeId ?? ""); setPaymentDate(today()); setDepositId(null); }}
+      onValueChange={key => { setSelection(key); setExtras([]); setAmounts({}); setIncomeSelection(incomeId ?? ""); setPaymentDate(null); setDepositId(null); }}
       options={[{ value: "", label: "Choose reimbursement" }, ...openClaims.map(item => ({
         value: item.key, label: item.counterparty + " · " + item.entry.description + " · " + money(item.remaining, currencyForAccount(workspace, item.entry.account_id)),
       }))]}/></Field>}
@@ -143,7 +145,7 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
             </div>)}
             <div className="payment-total" aria-live="polite"><span>Total deposit</span><strong>{money(paymentTotal, currency)}</strong></div>
           </fieldset>}
-        <Field label="Date received"><DatePicker label="Date received" name="date" value={paymentDate} onChange={setPaymentDate} min={firstPaymentDate} max={today()} required/></Field>
+        <Field label="Date received"><DatePicker label="Date received" name="date" value={recordDate} onChange={setPaymentDate} min={firstPaymentDate} max={today()} required/></Field>
         {!!nextClaims.length && <Field label="Add another claim" full><Picker label="Add another claim" value=""
           onValueChange={key => {
             if (!key) return;
@@ -188,7 +190,7 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
   const isAccount = edit.collection === "accounts";
   const [currency, setCurrency] = useState(() => isAccount && edit.row ? accountCurrency(edit.row) : initialCurrency);
   const isCategory = edit.collection === "categories";
-  const singular = isAccount ? "account" : isCategory ? "category" : "custom field";
+  const singular = isAccount ? "account" : isCategory ? "category" : edit.collection === "reimbursement_people" ? "person" : "custom field";
   async function submit(data: FormData) {
     const name = value(data, "name");
     const archived = data.has("archived");
@@ -210,6 +212,9 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
       const applicable = edit.row?.applicable_kind ?? value(data, "kind") as Category["applicable_kind"];
       if (workspace.categories.some(row => row.id !== edit.row?.id && row.applicable_kind === applicable && row.name.toLowerCase() === name.toLowerCase())) throw Error("A category with this name already exists for that type.");
       await save("categories", [{ id: edit.row?.id ?? id, name, applicable_kind: applicable, color: value(data, "color"), archived }]);
+    } else if (edit.collection === "reimbursement_people") {
+      if (workspace.reimbursement_people.some(row => row.id !== edit.row?.id && row.name.toLowerCase() === name.toLowerCase())) throw Error("A person with this name is already saved.");
+      await save("reimbursement_people", [{ id: edit.row?.id ?? id, name, archived }]);
     } else {
       if (workspace.field_definitions.some(row => row.id !== edit.row?.id && row.label.toLowerCase() === name.toLowerCase())) throw Error("A field with this label already exists.");
       const options = fieldType === "select" ? [...new Set(value(data, "options").split("\n").map(option => option.trim()).filter(Boolean))] : [];
@@ -221,7 +226,8 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
   const title = (edit.row ? "Edit " : "Add ") + (isAccount ? "financial account" : singular);
   const subtitle = isAccount && !edit.row ? "Track a bank account, e-wallet, cash balance or investment. Entries you record update its balance." : undefined;
   return <TaskForm title={title} subtitle={subtitle} close={close} submit={submit} label={edit.row ? "Save changes" : title}>
-    <Field label={isAccount || isCategory ? "Name" : "Field label"} full><input name="name" defaultValue={isAccount || isCategory ? edit.row?.name : edit.row?.label} maxLength={70} required/></Field>
+    <Field label={edit.collection === "field_definitions" ? "Field label" : "Name"} full><input name="name"
+      defaultValue={edit.collection === "field_definitions" ? edit.row?.label : edit.row?.name} maxLength={70} required/></Field>
     {isAccount && <>
       <Field label="Account type" full><Picker label="Account type" name="kind" defaultValue={edit.row?.kind ?? "bank"} disabled={!!edit.row}
         options={Object.entries(kindLabels).map(([value, label]) => ({ value, label }))}/></Field>
@@ -263,7 +269,7 @@ const guideSteps = [
   ["Set up your sheets", "Start in Personal or use Add sheet to create a separate place for a business or investments. Use the sheet picker to switch before making changes."],
   ["Add your financial accounts", "Open Settings → Financial accounts. Add a bank account, wallet, cash balance or investment account. Choose its currency, then enter the balance and date from which you want to start tracking."],
   ["Record income and spending", "Choose Add entry. Select an account and enter the amount in its currency. For a batch, switch to Spreadsheet and paste rows with the account names from the current sheet."],
-  ["Track reimbursements", "Mark an expense as reimbursable or choose Split by person to add several claims. Open Reimbursements or Add entries to record a payment or link an existing income entry. Open a payment to delete it or unlink the original income."],
+  ["Track reimbursements", "Save people in Settings → Reimbursement people. Choose Full amount for a complete reimbursement or Split by person to add several claims. Open Reimbursements or Add entries to record a payment or link an existing income entry. Open a payment to delete it or unlink the original income."],
   ["Track investments", "Add an investment account, then record contributions or withdrawals between accounts in the same sheet and currency. In Investments, use Update valuation to record its current total value."],
   ["Review and export", "Choose Month, Year, or All time. Overview can show one sheet or All sheets, with each currency totaled separately. Select one currency to download a PDF for the selected period."],
   ["Draft with the Assistant", "Open Assistant and describe an income or expense. Review the editable preview or ask for changes in chat, then choose Submit transaction."],
@@ -305,6 +311,13 @@ export function Settings({ workspace, cloud, onManage, onMove, onReset, onExport
           onEdit={() => onManage({ collection: "field_definitions", row: field })}>
           {!field.archived && <><button className="icon-button" aria-label={"Move " + field.label + " up"} disabled={index === 0} onClick={() => onMove(field, -1)}><ArrowUp size={16}/></button><button className="icon-button" aria-label={"Move " + field.label + " down"} disabled={index === ordered.length - 1} onClick={() => onMove(field, 1)}><ArrowDown size={16}/></button></>}
         </SettingRow>) : <p className="setting-empty">Add a field for references, tags or any details you track.</p>}
+      </section>
+      <section className="panel settings-panel">
+        <SectionHeading title="Reimbursement people" subtitle="Save names to reuse on this sheet" action={add("reimbursement_people", "Add person")}/>
+        {workspace.reimbursement_people.length ? workspace.reimbursement_people.toSorted((a, b) => a.name.localeCompare(b.name)).map(person =>
+          <SettingRow key={person.id} label={person.name} detail={person.archived ? "Archived" : "Saved person"}
+            onEdit={() => onManage({ collection: "reimbursement_people", row: person })}/>)
+          : <p className="setting-empty">Add people you regularly ask for reimbursements.</p>}
       </section>
       <section className="panel settings-panel settings-help">
         <SectionHeading title="How to use Finance Studio" subtitle="Step-by-step help for sheets, entries, and reports"/>

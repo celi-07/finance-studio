@@ -27,6 +27,7 @@ export type FieldValue = string | number | boolean;
 // Saved demo accounts from before currency support use IDR.
 export type FinanceBook = { id: string; name: string };
 type BookRecord = { ledger_id?: string | null };
+export type ReimbursementPerson = BookRecord & { id: string; name: string; archived: boolean };
 export type SavingsGoal = BookRecord & { id: string; name: string; currency: Currency; target_minor: number; reserved_minor: number; target_on: string | null };
 export type Account = BookRecord & { id: string; name: string; kind: AccountKind; currency?: Currency; opening_minor: number; opening_date: string; archived: boolean };
 export type Category = BookRecord & { id: string; name: string; applicable_kind: "income" | "expense"; color: string; archived: boolean };
@@ -43,6 +44,7 @@ export type Receipt = { id: string; expense_id: string; claim_id?: string | null
 export type Valuation = { id: string; investment_account_id: string; valued_on: string; value_minor: number };
 export type Workspace = {
   finance_books: FinanceBook[];
+  reimbursement_people: ReimbursementPerson[];
   savings_goals: SavingsGoal[];
   accounts: Account[]; categories: Category[]; field_definitions: Field[];
   transactions: Entry[]; reimbursement_receipts: Receipt[]; investment_valuations: Valuation[];
@@ -54,7 +56,7 @@ export type EntryDraft = Omit<Entry, "amount_minor" | "reimbursable_minor" | "re
 };
 
 export const emptyWorkspace: Workspace = {
-  finance_books: [], savings_goals: [], accounts: [], categories: [], field_definitions: [], transactions: [],
+  finance_books: [], reimbursement_people: [], savings_goals: [], accounts: [], categories: [], field_definitions: [], transactions: [],
   reimbursement_receipts: [], investment_valuations: [],
 };
 const jakarta = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -143,6 +145,7 @@ export function workspaceForCurrency(workspace: Workspace, currency: Currency): 
 export function workspaceForBook(workspace: Workspace, bookId: string): Workspace {
   const inBook = (row: BookRecord) => (row.ledger_id ?? "") === bookId;
   return workspaceWithAccounts({ ...workspace, savings_goals: workspace.savings_goals.filter(inBook),
+    reimbursement_people: workspace.reimbursement_people.filter(inBook),
     categories: workspace.categories.filter(inBook), field_definitions: workspace.field_definitions.filter(inBook) },
     workspace.accounts.filter(inBook));
 }
@@ -180,6 +183,7 @@ export function draftFrom(entry: Entry, currency: Currency = defaultCurrency): E
 }
 type Validation = { entry: Entry; errors?: undefined } | { entry?: undefined; errors: Record<string, string> };
 export type ReimbursementMode = "none" | "partial" | "full" | "split";
+export const fullReimbursement = "Full";
 export const maxReimbursementPeople = 30;
 
 export function validateFormEntry(workspace: Workspace, draft: EntryDraft, mode: ReimbursementMode): Validation {
@@ -217,8 +221,11 @@ export function validateEntry(workspace: Workspace, draft: EntryDraft, { require
     if (person.due_on && (!due || (date && due < date))) errors[person.id + "-date"] = "Choose a due date on or after the expense date.";
     return { id: person.id, amount_minor: amount ?? 0, counterparty, due_on: due };
   }) : undefined;
+  const reimbursementText = draft.reimbursable.trim();
   const reimbursable = shares ? total(shares, share => share.amount_minor)
-    : kind === "expense" && draft.reimbursable.trim() ? parseMoney(draft.reimbursable, currency) : 0;
+    : kind === "expense" && reimbursementText
+      ? reimbursementText.toLowerCase() === fullReimbursement.toLowerCase() ? amount : parseMoney(reimbursementText, currency)
+      : 0;
   const destination = needsDestination(draft.kind) ? draft.destination_account_id : null;
   const dueText = draft.due_on?.trim() ?? "";
   const due = shares ? (shares.length === 1 ? shares[0].due_on : null) : reimbursable && dueText ? parseDate(dueText) : null;
