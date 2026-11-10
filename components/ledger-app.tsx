@@ -423,7 +423,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       submit={() => removeRecord("reimbursement_receipts", panel.receipt.id, panel.receipt.income_entry_id ? "Payment unlinked" : "Payment deleted")}>
       <p className="full muted">{panel.receipt.income_entry_id
         ? "The original income entry will return to Transactions, and the amount owed will increase."
-        : "This removes the deposit from the account balance and increases the amount owed."}</p>
+        : "The amount owed will increase. The cash balance is recalculated from the account’s tracking date."}</p>
     </TaskForm>}
     {panel?.type === "reset" && <TaskForm title="Reset demo data?" subtitle="This replaces the entries and settings saved in this browser with the original fictional data." close={close} label="Reset demo"
       submit={async () => { const fresh = createDemo(); writeDemo(fresh); update(fresh); setBookId(""); setAllSheets(true); setMonth(today().slice(0, 7)); setPersonFilter(undefined); setProblem(""); setNotice("Demo reset"); }}/>}

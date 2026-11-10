@@ -85,6 +85,20 @@ test("reimbursement filters scope split claims, payments, and period totals to t
   check(["Taylor"], [], [], [0, 0, 0, 0]);
 });
 
+test("a reimbursement received before account tracking settles the claim without changing tracked cash", () => {
+  const workspace = setup();
+  workspace.accounts[0].opening_date = "2025-02-15";
+  workspace.transactions = [entry("historical-claim", "expense", 8000, { reimbursable_minor: 5000, counterparty: "Sam" })];
+  workspace.reimbursement_receipts = [{
+    id: "historical-payment", expense_id: "historical-claim", account_id: "bank", received_on: "2025-02-10", amount_minor: 5000,
+  }];
+  const report = monthly(workspace, month);
+  assert.equal(report.cash, 100_000);
+  assert.equal(report.collected, 5000);
+  assert.equal(report.receivable, 0);
+  assert.equal(claims(workspace)[0].status, "Settled");
+});
+
 test("only browser-safe Supabase settings reach the client", () => {
   const url = "https://ledger.example";
   const legacyKey = role => `header.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.signature`;
