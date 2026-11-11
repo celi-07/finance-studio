@@ -115,7 +115,7 @@ export async function createStatement(workspace: Workspace, period: string, curr
 
   const labels = new Map(scope.field_definitions.map(field => [field.id, field.label]));
   function entryDetails(rows: Activity[]) {
-    const details = rows.flatMap(row => {
+    const details = rows.toSorted((a, b) => a.date.localeCompare(b.date)).flatMap(row => {
       const values = Object.entries(row.entry?.custom_values ?? {}).map(([id, value]) => [
         labels.get(id) ?? "Custom field", typeof value === "boolean" ? value ? "Yes" : "No" : String(value),
       ]);
@@ -163,7 +163,7 @@ export async function createStatement(workspace: Workspace, period: string, curr
     ], { 1: amountColumn }, [["Closing cash balance", num(report.cash)]]);
     block("Personal spending by category", ["Category", "Personal share"], report.categories.length
       ? report.categories.map(category => [category.name, num(category.amount)]) : [["No spending this period", num(0)]], { 1: amountColumn });
-    const rows = activity(scope, period, currency);
+    const rows = activity(scope, period, currency).toSorted((a, b) => a.date.localeCompare(b.date));
     block("Transaction activity", ["Date", "Description", "Type / category", "Account", "Amount"],
       rows.length ? rows.map(row => [row.date, row.title, row.category === activityLabel(row) ? row.category : activityLabel(row) + "\n" + row.category,
         accountPath(row), (row.amount > 0 && row.kind !== "transfer" ? "+" : "") + num(row.amount)]) : [["", "No matching entries", "", "", ""]],
@@ -173,7 +173,8 @@ export async function createStatement(workspace: Workspace, period: string, curr
 
   if (kind === "overview" || kind === "reimbursements") {
     const reimbursements = kind === "reimbursements" ? reimbursementReport(scope, period, people) : null;
-    const relevant = reimbursements?.claims ?? report.claims;
+    const relevant = (reimbursements?.claims ?? report.claims)
+      .toSorted((a, b) => a.entry.occurred_on.localeCompare(b.entry.occurred_on));
     block(kind === "overview" ? "Reimbursements at period end" : "Claims and balances", ["Date / due", "Expense / counterparty", "Status", "Claimed", "Received", "Outstanding"],
       relevant.length ? relevant.map(claim => [
         claim.entry.occurred_on + (claim.due_on ? "\nDue " + claim.due_on : ""),
@@ -206,7 +207,7 @@ export async function createStatement(workspace: Workspace, period: string, curr
     } else {
       const prior = new Map(balances(scope, periodStart(period)).map(row => [row.account.id, row.value]));
       block("Investment holdings", ["Holding / last valuation", "Opening estimate", "Contributed balance", "Closing estimate"],
-        holdings.length ? holdings.map(({ account, basis, value, valuation }) => [
+        holdings.length ? holdings.toSorted((a, b) => (a.valuation?.valued_on ?? "9999-99-99").localeCompare(b.valuation?.valued_on ?? "9999-99-99")).map(({ account, basis, value, valuation }) => [
           account.name + (valuation ? "\nValued " + valuation.valued_on : ""), num(prior.get(account.id) ?? 0), num(basis), num(value),
         ]) : [["No investment accounts", "", "", ""]],
         { 1: amountColumn, 2: amountColumn, 3: amountColumn },
