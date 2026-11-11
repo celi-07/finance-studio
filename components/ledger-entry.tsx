@@ -4,7 +4,7 @@ import { useCallback, useRef, useState, type CSSProperties, type ClipboardEvent,
 import { ChevronDown, CircleAlert, GripVertical, HandCoins, ListPlus, Plus, Trash2, UserRoundPlus } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import {
-  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, validateFormEntry, workspaceForCurrency,
+  accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateSpreadsheetEntry, validateFormEntry, workspaceForCurrency,
   fullReimbursement, maxReimbursementPeople, newId, type Currency, type Entry, type EntryDraft, type Field as Definition, type Kind, type ReimbursementDraft, type ReimbursementMode, type Workspace,
 } from "@/lib/ledger";
 import { Field, Modal } from "./ledger-ui";
@@ -17,9 +17,10 @@ type Props = {
 };
 const maxRows = 250;
 const requiredColumns = new Set(["occurred_on", "kind", "description", "amount", "account_id"]);
-const batchValidationMessage = "Fill in Date, Type, Description, Amount, and Account on each used row. Review the highlighted cells.";
+const batchValidationMessage = "Correct the highlighted cells before saving.";
 const splitValidationMessage = "Review the highlighted reimbursement shares before saving.";
 const splitColumns = new Set(["reimbursable", "counterparty", "due_on"]);
+const hasDestination = (kind: string) => Object.hasOwn(kinds, kind) && needsDestination(kind);
 const cellDirections = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0] } as const;
 function kindMatch(value: string) {
   const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
@@ -67,7 +68,7 @@ function SpreadsheetChoice({ workspace, row, column, field, text, label, choose,
     ];
   } else if (column === "account_id" || column === "destination_account_id") {
     const destination = column === "destination_account_id";
-    if (destination && knownType && !needsDestination(row.kind)) return <Picker compact label={label + " (transfers and investment movements only)"} options={[]} disabled/>;
+    if (destination && !hasDestination(row.kind)) return <Picker compact label={label} options={[]} disabled/>;
     const source = workspace.accounts.find(account => account.id === row.account_id);
     const accounts = knownType ? editableAccounts(workspace, row.kind, destination) : workspace.accounts.filter(account => !account.archived);
     options = accounts
@@ -264,8 +265,12 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   function assign(row: EntryDraft, key: string, value: string): EntryDraft {
     const field = fieldById.get(key);
     if (field) {
-      const checkbox = field.field_type === "checkbox";
-      const next = checkbox && value.trim() ? /^(true|yes|1|checked|x)$/i.test(value.trim()) : value;
+      let next: string | boolean = value;
+      if (field.field_type === "checkbox") {
+        const choice = value.trim();
+        if (/^(true|yes|1|checked|x)$/i.test(choice)) next = true;
+        else if (/^(false|no|0|unchecked)$/i.test(choice)) next = false;
+      }
       return { ...row, custom: { ...row.custom, [key]: next } };
     }
     if (row.people && splitColumns.has(key)) return row;
@@ -274,8 +279,9 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       const category = row.category_id;
       const typedCategory = category && !workspace.categories.some(item => item.id === category);
       const category_id = typedCategory ? match(category, workspace.categories.filter(item => item.applicable_kind === kind)) : category;
-      return { ...row, kind, category_id };
+      return { ...row, kind, category_id, destination_account_id: hasDestination(kind) ? row.destination_account_id : null };
     }
+    if (key === "destination_account_id" && !hasDestination(row.kind)) return row;
     if (key === "account_id" || key === "destination_account_id") return { ...row, [key]: match(value, workspace.accounts) };
     if (key === "category_id") {
       const typed = value.trim();
@@ -288,7 +294,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     return { ...row, [key]: value };
   }
   const usedRow = (row: EntryDraft) => !!row.people?.length || columns.some(([key]) => cellText(row, key).trim());
-  const validateRow = (row: EntryDraft) => validateEntry(workspace, row, { requireCustomFields: false });
+  const validateRow = (row: EntryDraft) => validateSpreadsheetEntry(workspace, row);
   function updateCell(row: EntryDraft, key: string, value: string) {
     updateRow(row, item => assign(item, key, value));
   }
@@ -325,7 +331,12 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     if (hasHeader) pasted.shift();
     if (rowIndex + pasted.length > maxRows) { setProblem("Paste up to 250 rows at a time."); return; }
     if (pasted.some(line => line.length + columnIndex > columns.length)) { setProblem("The pasted cells exceed the available columns. Start at the matching first column."); return; }
-    setProblem(""); setRowErrors({});
+    const destinationOffset = columns.findIndex(([key]) => key === "destination_account_id") - columnIndex;
+    const typeOffset = columns.findIndex(([key]) => key === "kind") - columnIndex;
+    const skippedDestination = pasted.some((line, offset) => line[destinationOffset]?.trim() &&
+      !hasDestination(kindMatch(line[typeOffset] ?? rows[rowIndex + offset]?.kind ?? "")));
+    setProblem(skippedDestination ? "Skipped pasted destinations on rows without a transfer or investment movement type." : "");
+    setRowErrors({});
     setRows(current => {
       const next = [...current];
       pasted.forEach((line, offset) => {
@@ -356,7 +367,8 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     setRows(current => {
       const source = current[start];
       if (!source) return current;
-      const cells = keys.filter(key => !source.people || !splitColumns.has(key))
+      const cells = keys.filter(key => (!source.people || !splitColumns.has(key)) &&
+        (key !== "destination_account_id" || hasDestination(source.kind)))
         .map(key => [key, cellText(source, key)] as const);
       return current.map((row, index) => index !== start && index >= Math.min(start, end) && index <= Math.max(start, end)
         ? cells.reduce((next, [key, value]) => assign(next, key, value), row) : row);
@@ -576,12 +588,16 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
               const personCount = splitButton ? row.people?.filter(person => person.counterparty.trim()).length ?? 0 : 0;
               const splitLabel = (row.people ? "Edit split" : "Split by person") + " for row " + (index + 1);
               const splitCell = !!row.people && row.kind === "expense" && splitColumns.has(key);
-              const text = splitCell ? "" : cellText(row, key);
+              const destination = key === "destination_account_id";
+              const unavailableDestination = destination && !hasDestination(row.kind);
+              const disabled = splitCell || unavailableDestination;
+              const text = disabled ? "" : cellText(row, key);
               const rowAccount = monetary ? workspace.accounts.find(account => account.id === row.account_id) : undefined;
               const display = monetary && editingAmount !== amountId ? formatMoneyInput(text, rowAccount ? accountCurrency(rowAccount) : currency) : text;
-              return <td key={key} data-selected={cellSelected || undefined} data-fill={fill && fill.columns.includes(col) && index >= Math.min(fill.start, fill.end) && index <= Math.max(fill.start, fill.end) || undefined}>
-              <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error && !splitCell}
-                aria-describedby={error && !splitCell ? "error-" + index + "-" + col : undefined} value={display} disabled={splitCell} required={requiredColumns.has(key)}
+              return <td key={key} title={unavailableDestination ? "Available for transfers and investment movements." : undefined}
+                data-selected={!disabled && cellSelected || undefined} data-fill={!disabled && fill && fill.columns.includes(col) && index >= Math.min(fill.start, fill.end) && index <= Math.max(fill.start, fill.end) || undefined}>
+              <div className="sheet-cell"><input id={"cell-" + index + "-" + col} aria-label={"Row " + (index + 1) + ", " + label} aria-invalid={!!error && !disabled}
+                aria-describedby={error && !disabled ? "error-" + index + "-" + col : undefined} value={display} disabled={disabled} required={requiredColumns.has(key) || (destination && !disabled)}
                 inputMode={monetary ? "decimal" : undefined} onFocus={monetary ? () => setEditingAmount(amountId) : undefined}
                 onChange={event => updateCell(row, key, event.target.value)}
                 onBlur={event => {
@@ -601,11 +617,11 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
               </button>}
               {(!splitCell || splitButton) && <SpreadsheetChoice workspace={workspace} row={row} column={key} field={fieldById.get(key)} text={text}
                 label={`Choose ${label} for row ${index + 1}`}
-                choose={value => updateCell(row, key, value)} disabled={splitCell}/>}
-              {!splitCell && rows.length > 1 && (cellSelected || cellText(row, key)) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
+                choose={value => updateCell(row, key, value)} disabled={disabled}/>}
+              {!disabled && rows.length > 1 && (cellSelected || text) && <button type="button" className="fill-handle" tabIndex={-1} aria-hidden="true"
                 onPointerDown={event => beginFill(event, index, col)} onPointerMove={moveFill}
                 onPointerUp={() => finishFill(true)} onPointerCancel={() => finishFill(false)} onLostPointerCapture={() => finishFill(false)}/>}</div>
-              {error && !splitCell && <small className="field-error" id={"error-" + index + "-" + col}>{error}</small>}
+              {error && !disabled && <small className="field-error" id={"error-" + index + "-" + col}>{error}</small>}
             </td>; })}
             <td><button type="button" className="icon-button" aria-label={"Remove row " + (index + 1)} disabled={rows.length < 2} onClick={() => setRows(current => current.filter(item => item.id !== row.id))}><Trash2 size={16} /></button></td>
           </tr>)}</tbody>

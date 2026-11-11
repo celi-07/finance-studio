@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, withoutFinanceSheet, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, validateSpreadsheetEntry, withoutFinanceSheet, workspaceForBook } from "../lib/ledger.ts";
 import { readVerificationClaims } from "../lib/ledger-auth.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
@@ -376,13 +376,26 @@ test("spreadsheet validation requires the five core fields and allows blank cust
   const workspace = setup();
   workspace.field_definitions = [{ id: "ref", label: "Reference", field_type: "text", options: [], required: true, position: 0, archived: false }];
   const draft = draftFrom(entry("batch", "expense", 35_000));
-  assert.ok(validateEntry(workspace, draft, { requireCustomFields: false }).entry);
+  assert.ok(validateSpreadsheetEntry(workspace, draft).entry);
   assert.match(validateEntry(workspace, draft).errors.ref, /Complete/);
   for (const key of ["occurred_on", "kind", "description", "amount", "account_id"]) {
-    const result = validateEntry(workspace, { ...draft, [key]: "" }, { requireCustomFields: false });
+    const result = validateSpreadsheetEntry(workspace, { ...draft, [key]: "" });
     assert.ok(result.errors[key], key);
   }
-  assert.ok(validateEntry(workspace, { ...draft, kind: "transfer" }, { requireCustomFields: false }).errors.destination_account_id);
+  assert.ok(validateSpreadsheetEntry(workspace, { ...draft, kind: "transfer" }).errors.destination_account_id);
+});
+
+test("spreadsheet rejects invalid checkbox choices and reimbursement details with no amount", () => {
+  const workspace = setup();
+  workspace.field_definitions = [{ id: "reviewed", label: "Reviewed", field_type: "checkbox", options: [], required: false, position: 0, archived: false }];
+  const draft = draftFrom(entry("batch", "expense", 35_000));
+  const invalid = validateSpreadsheetEntry(workspace, { ...draft, counterparty: "Sam", custom: { reviewed: "maybe" } });
+  assert.match(invalid.errors.reviewed, /Yes or No/);
+  assert.match(invalid.errors.reimbursable, /positive reimbursement amount/);
+  assert.ok(validateSpreadsheetEntry(workspace, { ...draft, reimbursable: "0", due_on: "2025-02-20" }).errors.reimbursable);
+  const valid = validateSpreadsheetEntry(workspace, { ...draft, reimbursable: "Full", counterparty: "Sam", custom: { reviewed: false } });
+  assert.equal(valid.entry.reimbursable_minor, 35_000);
+  assert.equal(valid.entry.custom_values.reviewed, false);
 });
 
 test("spreadsheet Full reimbursement follows the expense amount and requires the person who owes it", () => {

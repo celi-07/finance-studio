@@ -321,6 +321,7 @@ strong { font-weight: 660; }
 .entry-grid th { padding-block: 8px; }
 .entry-grid th[title] { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 .entry-grid input { min-height: 36px; padding: 4px 6px; }
+.entry-grid input:disabled { background: var(--control); cursor: not-allowed; opacity: .65; }
 .sheet-cell { position: relative; }
 .person-input { display: block; }
 .sheet-cell:has(.cell-choice) > input { padding-inline-end: 34px; }
