@@ -16,6 +16,7 @@ const activityStyles: Record<Activity["kind"], { icon: LucideIcon; tone: string 
   investment_contribution: { icon: TrendingUp, tone: "orchid" },
   investment_withdrawal: { icon: TrendingDown, tone: "blue" },
   reimbursement_receipt: { icon: TicketCheck, tone: "mint" },
+  balance_update: { icon: ChartNoAxesCombined, tone: "orchid" },
 };
 const categoryIcons = new Map<string, LucideIcon>([
   ["food & drink", Utensils], ["transport", TrainFront], ["home & bills", House],

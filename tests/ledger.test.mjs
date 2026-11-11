@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activity, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, validateSpreadsheetEntry, withoutFinanceSheet, workspaceForBook } from "../lib/ledger.ts";
+import { activity, balanceBeforeUpdate, balances, cashLedger, claims, draftFrom, emptyWorkspace, formatMoneyInput, groupNumber, historicalAccounts, money, monthly, overviewHistory, parseDate, parseMoney, periodReport, reimbursementReport, validateEntry, validateFormEntry, validateSpreadsheetEntry, withoutFinanceSheet, workspaceForBook } from "../lib/ledger.ts";
 import { readVerificationClaims } from "../lib/ledger-auth.ts";
 import { readCloudConfig } from "../lib/ledger-cloud-config.ts";
 import { quickEntry, reviseQuickEntry } from "../lib/quick-entry.ts";
@@ -13,6 +13,51 @@ const entry = (id, kind, amount_minor, options = {}) => ({
   counterparty: "", due_on: null, ...options,
 });
 const setup = () => ({ ...emptyWorkspace, accounts: [account("bank", "bank", 100_000), account("wallet", "wallet"), account("fund", "investment")] });
+
+test("dated wallet balances generate only the difference, including transfers and repayments", () => {
+  const workspace = setup();
+  workspace.transactions = [
+    entry("top-up", "transfer", 20_000, { destination_account_id: "wallet" }),
+    entry("purchase", "expense", 5_000, { account_id: "wallet", occurred_on: "2025-02-04" }),
+    entry("lunch", "expense", 4_000, { reimbursable_minor: 2_000, counterparty: "Sam" }),
+    entry("later", "expense", 2_000, { account_id: "wallet", occurred_on: "2025-02-07" }),
+  ];
+  workspace.reimbursement_receipts = [{ id: "repayment", expense_id: "lunch", account_id: "wallet", amount_minor: 2_000, received_on: "2025-02-04" }];
+  workspace.balance_updates = [
+    { id: "check-one", account_id: "wallet", frequency: "weekly", balance_minor: 10_000, recorded_on: "2025-02-04" },
+    { id: "check-two", account_id: "wallet", frequency: "monthly", balance_minor: 12_000, recorded_on: "2025-02-11" },
+  ];
+  assert.equal(balanceBeforeUpdate(workspace, "wallet", "2025-02-04"), 17_000);
+  assert.equal(balanceBeforeUpdate(workspace, "wallet", "2025-02-11"), 8_000);
+  assert.deepEqual(activity(workspace, month).filter(row => row.balanceUpdate).map(row => [row.title, row.amount]),
+    [["Monthly Income", 4_000], ["Weekly Expense", -7_000]]);
+  const report = periodReport(workspace, month);
+  assert.deepEqual([report.cash, report.income, report.gross, report.spending], [88_000, 4_000, 18_000, 16_000]);
+  const ledger = cashLedger(workspace, month, "IDR");
+  assert.equal(ledger.end, report.cash);
+  assert.equal(ledger.rows.find(row => row.row?.id === "check-one").balance, 86_000);
+  workspace.transactions.push(entry("backdated", "expense", 3_000, { account_id: "wallet" }));
+  assert.equal(activity(workspace, month).find(row => row.id === "check-one").amount, -4_000);
+  assert.equal(periodReport(workspace, month).cash, report.cash);
+});
+
+test("investment balance updates preserve contributed balance and stay out of cash flow", () => {
+  const workspace = setup();
+  workspace.transactions = [
+    entry("buy", "investment_contribution", 10_000, { destination_account_id: "fund" }),
+    entry("top-up", "investment_contribution", 3_000, { destination_account_id: "fund", occurred_on: "2025-02-04" }),
+    entry("withdraw", "investment_withdrawal", 2_000, { account_id: "fund", destination_account_id: "bank", occurred_on: "2025-02-07" }),
+  ];
+  workspace.investment_valuations = [{ id: "valuation", investment_account_id: "fund", valued_on: "2025-02-04", value_minor: 15_000 }];
+  workspace.balance_updates = [{ id: "fund-update", account_id: "fund", frequency: "monthly", balance_minor: 18_000, recorded_on: "2025-02-04" }];
+  const report = periodReport(workspace, month);
+  assert.equal(balanceBeforeUpdate(workspace, "fund", "2025-02-04"), 15_000);
+  assert.deepEqual([report.cash, report.invested, report.income, report.gross], [89_000, 16_000, 0, 0]);
+  assert.equal(report.accounts.find(row => row.account.id === "fund").basis, 11_000);
+  const adjustment = activity(workspace, month).find(row => row.id === "fund-update");
+  assert.deepEqual([adjustment.title, adjustment.kind, adjustment.amount], ["Monthly Investment Gain", "balance_update", 3_000]);
+  assert.equal(cashLedger(workspace, month, "IDR").end, report.cash);
+});
 
 test("splitting a legacy claim keeps its payment and enforces each person's outstanding amount", () => {
   const workspace = setup();

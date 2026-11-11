@@ -42,12 +42,14 @@ export type Entry = {
 };
 export type Receipt = { id: string; expense_id: string; claim_id?: string | null; income_entry_id?: string | null; payment_group_id?: string | null; account_id: string; received_on: string; amount_minor: number; notes: string };
 export type Valuation = { id: string; investment_account_id: string; valued_on: string; value_minor: number };
+export type BalanceUpdate = { id: string; account_id: string; recorded_on: string; frequency: "weekly" | "monthly"; balance_minor: number };
 export type Workspace = {
   finance_books: FinanceBook[];
   reimbursement_people: ReimbursementPerson[];
   savings_goals: SavingsGoal[];
   accounts: Account[]; categories: Category[]; field_definitions: Field[];
   transactions: Entry[]; reimbursement_receipts: Receipt[]; investment_valuations: Valuation[];
+  balance_updates: BalanceUpdate[];
 };
 export type Collection = keyof Workspace;
 export type EntryDraft = Omit<Entry, "amount_minor" | "reimbursable_minor" | "reimbursement_claims" | "custom_values" | "kind"> & {
@@ -57,7 +59,7 @@ export type EntryDraft = Omit<Entry, "amount_minor" | "reimbursable_minor" | "re
 
 export const emptyWorkspace: Workspace = {
   finance_books: [], reimbursement_people: [], savings_goals: [], accounts: [], categories: [], field_definitions: [], transactions: [],
-  reimbursement_receipts: [], investment_valuations: [],
+  reimbursement_receipts: [], investment_valuations: [], balance_updates: [],
 };
 const jakarta = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" });
 const rupiah = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
@@ -137,6 +139,7 @@ function workspaceWithAccounts(workspace: Workspace, accounts: Account[]): Works
   return { ...workspace, accounts, transactions,
     reimbursement_receipts: workspace.reimbursement_receipts.filter(receipt => accountIds.has(receipt.account_id) && entryIds.has(receipt.expense_id)),
     investment_valuations: workspace.investment_valuations.filter(row => accountIds.has(row.investment_account_id)),
+    balance_updates: workspace.balance_updates.filter(row => accountIds.has(row.account_id)),
   };
 }
 export function workspaceForCurrency(workspace: Workspace, currency: Currency): Workspace {
@@ -164,6 +167,7 @@ export function withoutFinanceSheet(workspace: Workspace, bookId: string): Works
     transactions: workspace.transactions.filter(row => !accountIds.has(row.account_id)),
     reimbursement_receipts: workspace.reimbursement_receipts.filter(row => !accountIds.has(row.account_id)),
     investment_valuations: workspace.investment_valuations.filter(row => !accountIds.has(row.investment_account_id)),
+    balance_updates: workspace.balance_updates.filter(row => !accountIds.has(row.account_id)),
   };
 }
 export const categoryName = (workspace: Workspace, id: string | null) => workspace.categories.find(category => category.id === id)?.name ?? "Uncategorized";
@@ -381,51 +385,90 @@ export function reimbursementReport(workspace: Workspace, period: string, select
     collected: total(receipts, receipt => receipt.amount_minor), outstanding: total(matching, claim => claim.remaining) };
 }
 
-export function balances(workspace: Workspace, before: string) {
+function balanceState(workspace: Workspace, before: string) {
   const linked = linkedIncomeIds(workspace);
   const openings = new Map(workspace.accounts.map(account => [account.id, account.opening_date]));
-  const changes = new Map<string, number>();
-  const sinceValuation = new Map<string, number>();
-  const latest = new Map<string, Valuation>();
-  for (const valuation of workspace.investment_valuations) {
-    if (valuation.valued_on >= before) continue;
-    const previous = latest.get(valuation.investment_account_id);
-    if (!previous || previous.valued_on < valuation.valued_on) latest.set(valuation.investment_account_id, valuation);
-  }
+  const changes = new Map<string, Map<string, number>>();
+  const valuations = Map.groupBy(workspace.investment_valuations.filter(row => row.valued_on < before), row => row.investment_account_id);
+  const updates = Map.groupBy(workspace.balance_updates.filter(row => row.recorded_on < before), row => row.account_id);
   const add = (id: string, date: string, delta: number) => {
     const opening = openings.get(id);
-    if (opening && date >= opening) changes.set(id, (changes.get(id) ?? 0) + delta);
-  };
-  const adjust = (id: string, date: string, delta: number) => {
-    const valuation = latest.get(id);
-    if (valuation && date > valuation.valued_on) sinceValuation.set(id, (sinceValuation.get(id) ?? 0) + delta);
+    if (!opening || date < opening) return;
+    const days = changes.get(id) ?? new Map<string, number>();
+    days.set(date, (days.get(date) ?? 0) + delta);
+    changes.set(id, days);
   };
   for (const entry of workspace.transactions) {
     if (entry.occurred_on >= before || linked.has(entry.id)) continue;
     add(entry.account_id, entry.occurred_on, entry.kind === "income" ? entry.amount_minor : -entry.amount_minor);
     if (entry.destination_account_id) add(entry.destination_account_id, entry.occurred_on, entry.amount_minor);
-    if (entry.kind === "investment_withdrawal") adjust(entry.account_id, entry.occurred_on, -entry.amount_minor);
-    if (entry.kind === "investment_contribution" && entry.destination_account_id) adjust(entry.destination_account_id, entry.occurred_on, entry.amount_minor);
   }
   for (const receipt of workspace.reimbursement_receipts) if (receipt.received_on < before) add(receipt.account_id, receipt.received_on, receipt.amount_minor);
-  return workspace.accounts.map(account => {
-    const basis = (changes.get(account.id) ?? 0) + (account.opening_date < before ? account.opening_minor : 0);
-    const valuation = latest.get(account.id);
-    return { account, basis, valuation, value: valuation ? valuation.value_minor + (sinceValuation.get(account.id) ?? 0) : basis };
+  const adjustments: { update: BalanceUpdate; difference: number; investment: boolean }[] = [];
+  const accounts = workspace.accounts.map(account => {
+    const movements = changes.get(account.id) ?? new Map<string, number>();
+    const manual = new Map(valuations.get(account.id)?.map(row => [row.valued_on, row]));
+    const recorded = new Map(updates.get(account.id)?.filter(row => row.recorded_on >= account.opening_date).map(row => [row.recorded_on, row]));
+    const investment = account.kind === "investment";
+    let value = account.opening_date < before ? account.opening_minor : 0;
+    let basis = value;
+    let valuation: Valuation | undefined;
+    const dates = [...new Set([...movements.keys(), ...manual.keys(), ...recorded.keys()])].sort();
+    for (const date of dates) {
+      const movement = movements.get(date) ?? 0;
+      basis += movement;
+      value += movement;
+      const manualValue = manual.get(date);
+      if (manualValue) {
+        valuation = manualValue;
+        value = manualValue.value_minor;
+      }
+      // An end-of-day balance includes activity and any valuation recorded on that date.
+      const update = recorded.get(date);
+      if (update) {
+        adjustments.push({ update, difference: update.balance_minor - value, investment });
+        value = update.balance_minor;
+        if (investment) valuation = { id: update.id, investment_account_id: account.id, valued_on: date, value_minor: value };
+        else basis = value;
+      }
+    }
+    return { account, basis, valuation, value };
   });
+  return { accounts, adjustments };
+}
+export function balances(workspace: Workspace, before: string) {
+  return balanceState(workspace, before).accounts;
+}
+export function balanceBeforeUpdate(workspace: Workspace, accountId: string, date: string) {
+  const nextDay = new Date(date + "T00:00:00Z");
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  return balances({
+    ...workspace, accounts: workspace.accounts.filter(account => account.id === accountId),
+    balance_updates: workspace.balance_updates.filter(row => row.account_id === accountId && row.recorded_on !== date),
+  }, nextDay.toISOString().slice(0, 10))[0]?.value ?? 0;
+}
+export function balanceUpdateTitle(frequency: BalanceUpdate["frequency"], difference: number, investment: boolean) {
+  const interval = frequency === "weekly" ? "Weekly " : "Monthly ";
+  if (!difference) return interval + "Balance Check";
+  if (investment) return interval + (difference > 0 ? "Investment Gain" : "Investment Loss");
+  return interval + (difference > 0 ? "Income" : "Expense");
 }
 export function periodReport(data: Workspace, period: string, currency: Currency = defaultCurrency) {
   const workspace = workspaceForCurrency(data, currency);
   const before = periodEnd(period);
-  const accounts = balances(workspace, before);
+  const { accounts, adjustments: allAdjustments } = balanceState(workspace, before);
+  const adjustments = allAdjustments.filter(row => inPeriod(row.update.recorded_on, period));
+  const cashAdjustments = adjustments.filter(row => !row.investment);
+  const adjustmentIncome = total(cashAdjustments, row => Math.max(0, row.difference));
+  const adjustmentExpense = total(cashAdjustments, row => Math.max(0, -row.difference));
   const linked = linkedIncomeIds(workspace);
   const entries = workspace.transactions.filter(entry => !linked.has(entry.id) && inPeriod(entry.occurred_on, period)).toSorted((a, b) => b.occurred_on.localeCompare(a.occurred_on));
   const receipts = workspace.reimbursement_receipts.filter(row => inPeriod(row.received_on, period));
   const activeClaims = claims(workspace, before, before < today() ? before : today());
   const expenses = entries.filter(entry => entry.kind === "expense");
-  const income = total(entries.filter(entry => entry.kind === "income"), row => row.amount_minor);
-  const gross = total(expenses, row => row.amount_minor);
-  const spending = total(expenses, row => row.amount_minor - row.reimbursable_minor);
+  const income = adjustmentIncome + total(entries.filter(entry => entry.kind === "income"), row => row.amount_minor);
+  const gross = adjustmentExpense + total(expenses, row => row.amount_minor);
+  const spending = adjustmentExpense + total(expenses, row => row.amount_minor - row.reimbursable_minor);
   const contribution = total(entries.filter(entry => entry.kind === "investment_contribution"), row => row.amount_minor);
   const withdrawal = total(entries.filter(entry => entry.kind === "investment_withdrawal"), row => row.amount_minor);
   const collected = total(receipts, row => row.amount_minor);
@@ -434,9 +477,10 @@ export function periodReport(data: Workspace, period: string, currency: Currency
   const receivable = total(activeClaims, row => row.remaining);
   const categoryTotals = new Map<string | null, number>();
   for (const entry of expenses) categoryTotals.set(entry.category_id, (categoryTotals.get(entry.category_id) ?? 0) + entry.amount_minor - entry.reimbursable_minor);
+  if (adjustmentExpense) categoryTotals.set(null, (categoryTotals.get(null) ?? 0) + adjustmentExpense);
   const categories = Array.from(categoryTotals, ([id, amount]) => ({ id, name: categoryName(workspace, id), amount }))
     .filter(category => category.amount > 0).sort((a, b) => b.amount - a.amount);
-  return { entries, receipts, income, gross, spending, contribution, withdrawal, collected, cash, invested, receivable, categories,
+  return { entries, receipts, adjustments, income, gross, spending, contribution, withdrawal, collected, cash, invested, receivable, categories,
     cashIn: income + collected + withdrawal, cashOut: gross + contribution,
     netCashFlow: income + collected + withdrawal - gross - contribution,
     totalAssets: cash + invested + receivable, accounts, claims: activeClaims };
@@ -455,7 +499,7 @@ export function overviewHistory(workspace: Workspace, period: string, currency: 
 }
 export const monthly = periodReport;
 
-export type Activity = { id: string; date: string; title: string; kind: Kind | "reimbursement_receipt"; amount: number; accountId: string; category: string; entry?: Entry; receipt?: Receipt };
+export type Activity = { id: string; date: string; title: string; kind: Kind | "reimbursement_receipt" | "balance_update"; amount: number; accountId: string; category: string; entry?: Entry; receipt?: Receipt; balanceUpdate?: BalanceUpdate };
 export function activity(workspace: Workspace, period: string, currency: Currency = defaultCurrency): Activity[] {
   const report = periodReport(workspace, period, currency);
   return [
@@ -463,6 +507,11 @@ export function activity(workspace: Workspace, period: string, currency: Currenc
       id: entry.id, date: entry.occurred_on, title: entry.description, kind: entry.kind,
       amount: entry.kind === "income" || entry.kind === "investment_withdrawal" ? entry.amount_minor : entry.kind === "transfer" ? entry.amount_minor : -entry.amount_minor,
       accountId: entry.account_id, category: entry.category_id ? categoryName(workspace, entry.category_id) : kinds[entry.kind], entry,
+    })),
+    ...report.adjustments.map(({ update, difference, investment }): Activity => ({
+      id: update.id, date: update.recorded_on, title: balanceUpdateTitle(update.frequency, difference, investment),
+      kind: investment || !difference ? "balance_update" : difference > 0 ? "income" : "expense",
+      amount: difference, accountId: update.account_id, category: "Balance update", balanceUpdate: update,
     })),
     ...Array.from(Map.groupBy(report.receipts, paymentKey), ([id, payments]) => {
       const receipt = payments.find(item => item.id === id) ?? payments[0];
@@ -481,7 +530,8 @@ export function activity(workspace: Workspace, period: string, currency: Currenc
     }),
   ].sort((a, b) => b.date.localeCompare(a.date));
 }
-export const activityLabel = (row: Activity) => row.kind === "reimbursement_receipt" ? "Reimbursement received" : kinds[row.kind];
+export const activityLabel = (row: Activity) => row.balanceUpdate || row.kind === "balance_update" ? "Balance update"
+  : row.kind === "reimbursement_receipt" ? "Reimbursement received" : kinds[row.kind];
 export const activityMoney = (row: Activity, currency: Currency = defaultCurrency) => row.kind === "transfer" ? money(row.amount, currency) : signed(row.amount, currency);
 
 export function cashLedger(workspace: Workspace, period: string, currency: Currency) {
@@ -501,7 +551,8 @@ export function cashLedger(workspace: Workspace, period: string, currency: Curre
     return { date: row.date, account: accountName(workspace, row.accountId), opening: 0, change: source + destination, row };
   });
   let running = start;
-  const rows = [...openings, ...movements].sort((a, b) => a.date.localeCompare(b.date))
+  const rows = [...openings, ...movements].sort((a, b) => a.date.localeCompare(b.date) ||
+    Number(Boolean(a.row?.balanceUpdate)) - Number(Boolean(b.row?.balanceUpdate)))
     .map(item => ({ ...item, balance: running += item.change }));
   return { rows, start, end: running, openings: total(openings, item => item.opening),
     inflow: total(movements, item => Math.max(0, item.change)), outflow: total(movements, item => Math.max(0, -item.change)) };
