@@ -6,6 +6,11 @@ const titles: Record<StatementKind, string> = {
   overview: "Financial overview", transactions: "Transaction statement",
   reimbursements: "Reimbursement statement", investments: "Investment statement",
 };
+const screenNames: Record<StatementKind, string> = {
+  overview: "Overview", transactions: "Transactions",
+  reimbursements: "Reimbursement", investments: "Investments",
+};
+const filenameDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Jakarta" });
 const fontFiles = ["PlusJakartaSans-Regular.ttf", "PlusJakartaSans-Bold.ttf", "DejaVuSans.ttf"] as const;
 const primaryFont = "PlusJakartaSans-Regular";
 const boldFont = "PlusJakartaSans-Bold";
@@ -25,8 +30,7 @@ type StatementFilters = { activity?: Activity[]; people?: readonly string[] };
 export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string, filters?: StatementFilters) {
   const fonts = await Promise.all(fontFiles.map(loadFont));
   const pdf = await createStatement(workspace, period, currency, demo, fonts, kind, sheet, filters);
-  const sheetSlug = sheet?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-  pdf.save(["finance-studio", kind, sheetSlug, period, currency.toLowerCase(), demo ? "demo" : ""].filter(Boolean).join("-") + ".pdf");
+  pdf.save(`Finance Studio - ${screenNames[kind]} - ${filenameDate.format(new Date())}.pdf`);
 }
 
 type Columns = Record<number, { cellWidth?: number; halign?: "right" }>;
