@@ -222,6 +222,8 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const dragRow = useRef<typeof rowMove>(null);
   const movingRowIndex = rowMove ? rows.findIndex(row => row.id === rowMove.source) : -1;
   const editingCell = useRef(false);
+  const [arrowNavigation, setArrowNavigation] = useState(true);
+  const altTap = useRef(false);
   const grid = useRef<HTMLDivElement>(null);
   const [dialog, setDialog] = useState<HTMLDialogElement | null>(null);
   const bindGrid = useCallback((node: HTMLDivElement | null) => {
@@ -461,6 +463,24 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     setSelected({ row: rows[index].id, anchor: col, columns: [col] });
     return true;
   }
+  function toggleArrowNavigation() {
+    editingCell.current = false;
+    setArrowNavigation(current => !current);
+  }
+  function trackAlt(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Alt" && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      if (!event.repeat) altTap.current = true;
+      event.preventDefault();
+    } else {
+      altTap.current = false;
+    }
+  }
+  function releaseAlt(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Alt" || !altTap.current) return;
+    altTap.current = false;
+    event.preventDefault();
+    toggleArrowNavigation();
+  }
   function advance(event: KeyboardEvent<HTMLInputElement>, index: number, col: number) {
     if (event.nativeEvent.isComposing || working) return;
     const copyFromBelow = event.altKey && event.shiftKey && event.key === "ArrowUp";
@@ -487,7 +507,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     }
     if (!Object.hasOwn(cellDirections, event.key)) return;
     const enter = event.key === "Enter";
-    if (!enter && (editingCell.current || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) return;
+    if (!enter && (!arrowNavigation || editingCell.current || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) return;
     event.preventDefault();
     const [rowStep, columnStep] = cellDirections[event.key as keyof typeof cellDirections];
     let nextRow = index + rowStep;
@@ -548,12 +568,16 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     {!original && <div className="entry-toolbar"><div className="mode-switch segmented" style={{ "--selection": bulk ? 1 : 0 } as CSSProperties} role="group" aria-label="Entry mode">
       <button type="button" aria-pressed={!bulk} onClick={() => { setBulk(false); setProblem(""); }}>Form</button>
       <button type="button" aria-pressed={bulk} onClick={() => { setBulk(true); setProblem(""); }}>Spreadsheet</button>
-    </div>{onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Reimbursement payment</button>}</div>}
+    </div>{bulk && <button type="button" className="button secondary sheet-arrow-toggle" aria-label="Move between cells with arrow keys"
+      aria-pressed={arrowNavigation} onClick={toggleArrowNavigation}>
+      <span>Arrow keys · {arrowNavigation ? "Cells" : "Text"}</span><kbd aria-hidden="true">Alt</kbd>
+    </button>}{onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Reimbursement payment</button>}</div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026. Use the person-plus button in an expense’s Reimbursement column to add several people.</p>
-        <p>Use the arrow keys to move between cells. Press F2 to move the cursor within a cell. Drag a row by its grip, or open its row menu to move it or insert a row.</p>
+        <p>Tap Alt while focused in the grid to switch between cell navigation and text editing. Press F2 to edit the current cell. Drag a row by its grip, or use its row menu.</p>
         <p>Drag a cell’s corner up or down to fill. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from above, and Alt+Shift+↑ copies from below.</p></div>
-      <div className="grid-scroll" ref={bindGrid} tabIndex={0} aria-label="Spreadsheet entry grid">
+      <div className="grid-scroll" ref={bindGrid} tabIndex={0} aria-label="Spreadsheet entry grid"
+        onKeyDownCapture={trackAlt} onKeyUpCapture={releaseAlt} onBlurCapture={() => { altTap.current = false; }}>
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label, hint]) => <th key={key} scope="col" className={"col-" + key} title={hint} aria-description={hint}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}
             data-row-moving={rowMove?.source === row.id || undefined}

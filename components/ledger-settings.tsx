@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Download, HandCoins, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import {
-  accountCurrency, accountName, activeFields, amountExample, amountText, claims, currencies, currencyForAccount, currencyLabel, dayLabel, formatMoneyInput, isCurrency, money, newId, parseDate, parseMoney, today,
-  type Account, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type ReimbursementPerson, type Valuation, type Workspace,
+  accountCurrency, accountName, activeFields, amountExample, amountText, balanceBeforeUpdate, balanceUpdateTitle, claims, currencies, currencyForAccount, currencyLabel, dayLabel, formatMoneyInput, isCurrency, money, newId, parseDate, parseMoney, signed, today,
+  type Account, type BalanceUpdate, type Category, type Collection, type Currency, type Field as Definition, type FieldType, type FinanceBook, type Receipt, type ReimbursementPerson, type Valuation, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, Field, Modal, MoneyInput, palette } from "./ledger-ui";
 import { DatePicker, Picker } from "./ledger-picker";
@@ -164,6 +164,76 @@ export function ReceiptDialog({ workspace, initialClaim, incomeId, close, save }
   </TaskForm>;
 }
 
+export function BalanceUpdateDialog({ workspace, accountId, original, month, close, save, onDelete }: {
+  workspace: Workspace; accountId?: string; original?: BalanceUpdate; month: string; close: () => void;
+  save: (update: BalanceUpdate) => Promise<void>; onDelete: () => void;
+}) {
+  const [id] = useState(newId);
+  const now = today();
+  const accounts = workspace.accounts.filter(item => !item.archived && item.opening_date <= now);
+  const [selected, setSelected] = useState(original?.account_id ?? accountId ?? accounts[0]?.id ?? "");
+  const account = workspace.accounts.find(item => item.id === selected);
+  const currency = accountCurrency(account);
+  const [frequency, setFrequency] = useState<BalanceUpdate["frequency"]>(original?.frequency ?? "monthly");
+  const [date, setDate] = useState(() => {
+    if (original) return original.recorded_on;
+    const [year, monthNumber] = month.split("-").map(Number);
+    const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+    const end = monthEnd < now ? monthEnd : now;
+    return account && end < account.opening_date ? account.opening_date : end;
+  });
+  const [amount, setAmount] = useState(() => original ? original.balance_minor < 0
+    ? "-" + amountText(-original.balance_minor, currency) : amountText(original.balance_minor, currency) || "0" : "");
+  const validDate = !!account && parseDate(date) === date && date >= account.opening_date && date <= now;
+  const existing = workspace.balance_updates.find(item => item.account_id === selected && item.recorded_on === date);
+  const ledgerBalance = useMemo(() => validDate ? balanceBeforeUpdate(workspace, selected, date) : null, [workspace, selected, date, validDate]);
+  const negative = /^[−-]/.test(amount.trim());
+  const magnitude = amount.trim().replace(/^[−-]\s*/, "");
+  const parsed = parseMoney(magnitude, currency);
+  const balance = parsed === null ? null : negative ? -parsed : parsed;
+  const investment = account?.kind === "investment";
+  const difference = ledgerBalance === null || balance === null ? null : balance - ledgerBalance;
+  async function submit() {
+    if (!account || account.archived) throw Error("Choose an active account.");
+    if (!validDate) throw Error("Choose a date from the account opening through today.");
+    if (balance === null || (investment && balance < 0)) throw Error(investment
+      ? "Enter an investment value of zero or more." : "Enter a valid ending balance.");
+    if (!Number.isSafeInteger(difference)) throw Error("The balance difference is outside the supported amount range.");
+    await save({ id: existing?.id ?? id, account_id: account.id, recorded_on: date, frequency, balance_minor: balance });
+  }
+  return <TaskForm title={original ? "Edit balance update" : "Record balance"}
+    subtitle="Enter what the account held at the end of a day. Finance Studio calculates the difference from your ledger."
+    close={close} submit={submit} label="Save balance" disabled={!account || account.archived}>
+    <Field label="Account" full><Picker label="Balance account" value={selected} disabled={!!original} onValueChange={next => {
+      setSelected(next);
+      setAmount("");
+      const opening = accounts.find(item => item.id === next)?.opening_date;
+      if (opening && date < opening) setDate(opening);
+    }} options={(original && account ? [account] : accounts).map(item => ({
+      value: item.id, label: item.name + " · " + accountCurrency(item) +
+        (workspace.finance_books.length ? " · " + (workspace.finance_books.find(sheet => sheet.id === item.ledger_id)?.name ?? "Personal") : ""),
+    }))}/></Field>
+    <Field label="Update frequency"><Picker label="Update frequency" value={frequency}
+      onValueChange={next => setFrequency(next === "weekly" ? "weekly" : "monthly")}
+      options={[{ value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }]}/></Field>
+    <Field label="Balance date" hint={original ? undefined : "Choose the last date you’re totaling."}>
+      {original ? <strong>{dayLabel(date)}</strong> : <DatePicker label="Balance date" value={date} onChange={setDate} min={account?.opening_date} max={now} required/>}
+    </Field>
+    <Field label={`Actual ending balance (${currencyLabel(currency)})`} full><input inputMode="decimal" required
+      value={amount} placeholder={existing ? money(existing.balance_minor, currency) : amountExample(currency)}
+      onChange={event => setAmount(event.target.value)} onBlur={() => {
+        if (parsed !== null) setAmount((negative ? "-" : "") + formatMoneyInput(magnitude, currency));
+      }}/></Field>
+    {ledgerBalance !== null && <div className="payment-summary balance-update-preview full">
+      <div><small>Ledger balance on this date</small><strong>{money(ledgerBalance, currency)}</strong></div>
+      {difference !== null && Number.isSafeInteger(difference) && (!investment || (balance ?? 0) >= 0) &&
+        <div><small>{balanceUpdateTitle(frequency, difference, investment)}</small><strong>{signed(difference, currency)}</strong></div>}
+    </div>}
+    {!original && existing && <p className="full muted">Saving replaces the balance update for this account and date.</p>}
+    {original && <div className="full"><button type="button" className="button danger quiet" onClick={onDelete}>Delete balance update</button></div>}
+  </TaskForm>;
+}
+
 export function ValueDialog({ workspace, accountId, close, save }: { workspace: Workspace; accountId: string; close: () => void; save: Save }) {
   const [id] = useState(newId);
   const account = workspace.accounts.find(item => item.id === accountId);
@@ -174,6 +244,9 @@ export function ValueDialog({ workspace, accountId, close, save }: { workspace: 
     const date = parseDate(value(data, "date"));
     if (amount === null) throw Error("Enter a valid value of zero or more.");
     if (!date || !account || date < account.opening_date || date > today()) throw Error("Choose a date from the account opening through today.");
+    if (workspace.balance_updates.some(item => item.account_id === accountId && item.recorded_on === date)) {
+      throw Error("Edit the balance update for this date in Transactions.");
+    }
     const sameDay = workspace.investment_valuations.find(item => item.investment_account_id === accountId && item.valued_on === date);
     const valuation: Valuation = { id: sameDay?.id ?? id, investment_account_id: accountId, valued_on: date, value_minor: amount };
     await save("investment_valuations", [valuation]);
@@ -205,8 +278,9 @@ export function ManagementDialog({ edit, workspace, initialCurrency, close, save
       if (!date || !Object.hasOwn(kindLabels, kind)) throw Error("Enter a valid date and account type.");
       const linkedHistory = edit.row && date > edit.row.opening_date && (
         workspace.reimbursement_receipts.some(receipt => receipt.account_id === edit.row?.id && receipt.received_on < date)
-        || workspace.investment_valuations.some(valuation => valuation.investment_account_id === edit.row?.id && valuation.valued_on < date));
-      if (linkedHistory) throw Error("Choose a tracking date on or before the earliest linked payment or valuation.");
+        || workspace.investment_valuations.some(valuation => valuation.investment_account_id === edit.row?.id && valuation.valued_on < date)
+        || workspace.balance_updates.some(update => update.account_id === edit.row?.id && update.recorded_on < date));
+      if (linkedHistory) throw Error("Choose a tracking date on or before the earliest linked payment, valuation, or balance update.");
       await save("accounts", [{ id: edit.row?.id ?? id, name, kind, currency, opening_minor: opening, opening_date: date, archived }]);
     } else if (edit.collection === "categories") {
       const applicable = edit.row?.applicable_kind ?? value(data, "kind") as Category["applicable_kind"];
@@ -283,6 +357,7 @@ const guideSteps = [
   ["Set up your sheets", "Start in Personal or use Add sheet to create a separate place for a business or investments. Use the sheet picker to switch before making changes."],
   ["Add your financial accounts", "Open Settings → Financial accounts. Add a bank account, wallet, cash balance or investment account. Choose its currency, then enter the balance and date from which you want to start tracking."],
   ["Record income and spending", "Choose Add entry. Select an account and enter the amount in its currency. For a batch, switch to Spreadsheet and paste rows with the account names from the current sheet."],
+  ["Record an ending balance", "Choose Record balance in Overview, Transactions, or on an investment holding. Pick Weekly or Monthly, choose the last date you’re totaling, and enter the balance you see. Open the generated item in Transactions to edit it. Entries dated on or before the balance update are included when calculating the difference."],
   ["Track reimbursements", "Save people in Settings → Reimbursement people. Choose Full amount for a complete reimbursement or Split by person to add several claims. Open Reimbursements or Add entries to record a payment or link an existing income entry. Open a payment to delete it or unlink the original income."],
   ["Track investments", "Add an investment account, then record contributions or withdrawals between accounts in the same sheet and currency. In Investments, use Update valuation to record its current total value."],
   ["Review and export", "Choose Month, Year, or All time. Overview can show one sheet or All sheets, with each currency totaled separately. Select one currency to download a PDF for the selected period."],

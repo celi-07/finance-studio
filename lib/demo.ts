@@ -63,7 +63,7 @@ export function readDemo(): Workspace {
   if (!envelope || typeof envelope !== "object" || !("version" in envelope) || envelope.version !== 1 || !("data" in envelope)) throw Error("Demo data couldn’t be read. Reset the demo to start with a fresh copy.");
   const data = envelope.data;
   if (!data || typeof data !== "object" || !Object.keys(emptyWorkspace).every(key =>
-    (key === "finance_books" || key === "savings_goals" || key === "reimbursement_people") && !(key in data) || key in data && Array.isArray((data as Record<string, unknown>)[key]))) {
+    (key === "finance_books" || key === "savings_goals" || key === "reimbursement_people" || key === "balance_updates") && !(key in data) || key in data && Array.isArray((data as Record<string, unknown>)[key]))) {
     throw Error("Demo data is incomplete. Reset the demo to start with a fresh copy.");
   }
   return { ...emptyWorkspace, ...data } as Workspace;

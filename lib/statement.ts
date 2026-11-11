@@ -1,5 +1,5 @@
 import type { Activity, Currency, Workspace } from "./ledger.ts";
-import { accountName, activity, activityLabel, amountText, balances, cashLedger, currencyLabel, dayLabel, formatMoneyInput, inPeriod, periodReport, periodLabel, periodStart, receiptClaimKey, reimbursementReport, today, workspaceForCurrency } from "./ledger.ts";
+import { accountName, activity, activityLabel, amountText, balanceUpdateTitle, balances, cashLedger, currencyLabel, dayLabel, formatMoneyInput, inPeriod, periodReport, periodLabel, periodStart, receiptClaimKey, reimbursementReport, today, workspaceForCurrency } from "./ledger.ts";
 
 export type StatementKind = "overview" | "transactions" | "reimbursements" | "investments";
 const titles: Record<StatementKind, string> = {
@@ -219,6 +219,11 @@ export async function createStatement(workspace: Workspace, period: string, curr
       const valuations = scope.investment_valuations.filter(row => inPeriod(row.valued_on, period)).toSorted((a, b) => a.valued_on.localeCompare(b.valued_on));
       if (valuations.length) block("Valuations recorded in period", ["Date", "Holding", "Value"],
         valuations.map(row => [row.valued_on, accountName(scope, row.investment_account_id), num(row.value_minor)]), { 0: { cellWidth: 24 }, 2: amountColumn });
+      const updates = report.adjustments.filter(row => row.investment).toSorted((a, b) => a.update.recorded_on.localeCompare(b.update.recorded_on));
+      if (updates.length) block("Investment balance updates", ["Date", "Holding / update", "Change", "Recorded value"],
+        updates.map(({ update, difference }) => [update.recorded_on,
+          accountName(scope, update.account_id) + "\n" + balanceUpdateTitle(update.frequency, difference, true),
+          num(difference), num(update.balance_minor)]), { 0: { cellWidth: 24 }, 2: amountColumn, 3: amountColumn });
     }
   }
 

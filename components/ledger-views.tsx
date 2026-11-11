@@ -249,7 +249,7 @@ export type Filters = { search: string; kind: string; account: string };
 export function filterActivity(workspace: Workspace, period: string, filters: Filters, currency: Currency) {
   const query = filters.search.trim().toLowerCase();
   return activity(workspace, period, currency).filter(row =>
-    (!filters.kind || row.kind === filters.kind) &&
+    (!filters.kind || row.kind === filters.kind || filters.kind === "balance_update" && row.balanceUpdate) &&
     (!filters.account || row.accountId === filters.account || row.entry?.destination_account_id === filters.account) &&
     (!query || [row.title, row.category, accountName(workspace, row.accountId), row.entry?.notes, row.entry?.counterparty].some(value => value?.toLowerCase().includes(query))));
 }
@@ -264,7 +264,8 @@ export function Transactions({ workspace, period, currency, filters, setFilters,
     <section className="panel filter-panel" aria-label="Transaction filters">
       <label className="search-field"><Search size={18}/><input type="search" placeholder="Search transactions" aria-label="Search transactions" value={filters.search} onChange={event => setFilters({ ...filters, search: event.target.value })}/></label>
       <Picker label="Filter by type" icon={ListFilter} value={filters.kind} onValueChange={kind => setFilters({ ...filters, kind })}
-        options={[{ value: "", label: "All types" }, ...Object.entries(kinds).map(([value, label]) => ({ value, label })), { value: "reimbursement_receipt", label: "Reimbursement received" }]}/>
+        options={[{ value: "", label: "All types" }, ...Object.entries(kinds).map(([value, label]) => ({ value, label })),
+          { value: "reimbursement_receipt", label: "Reimbursement received" }, { value: "balance_update", label: "Balance updates" }]}/>
       <Picker label="Filter by account" icon={WalletCards} value={filters.account} onValueChange={account => setFilters({ ...filters, account })}
         options={[{ value: "", label: "All accounts" }, ...workspace.accounts.map(account => ({ value: account.id, label: account.name }))]}/>
     </section>
@@ -361,15 +362,18 @@ export function Reimbursements({ workspace, period, currency, selectedPeople, on
   </>;
 }
 
-export function Investments({ workspace, period, currency, onEntry, onValue, onSettings }: {
+export function Investments({ workspace, period, currency, onEntry, onValue, onBalance, onOpen, onSettings }: {
   workspace: Workspace; period: string; currency: Currency; onEntry: (kind: Kind, id: string) => void; onValue: (id: string) => void; onSettings: () => void;
+  onBalance: (id: string) => void; onOpen: (row: Activity) => void;
 }) {
   const format = (amount: number) => money(amount, currency);
   const report = periodReport(workspace, period, currency);
   const holdings = report.accounts.filter(row => row.account.kind === "investment");
+  const updates = activity(workspace, period, currency).filter(row => row.kind === "balance_update" &&
+    holdings.some(holding => holding.account.id === row.accountId));
   return <>
     <div className="metric-grid">
-      <Metric title="Estimated investment value" value={format(report.invested)} hint="Using manual valuations and later movements" tone="orchid" icon={ChartNoAxesCombined} period={period}/>
+      <Metric title="Estimated investment value" value={format(report.invested)} hint="Using recorded values and later movements" tone="orchid" icon={ChartNoAxesCombined} period={period}/>
       <Metric title="Contributed this period" value={format(report.contribution)} hint="Cash moved into investments" tone="mint" icon={BanknoteArrowUp} period={period}/>
       <Metric title="Withdrawn this period" value={format(report.withdrawal)} hint="Cash returned from investments" tone="blue" icon={BanknoteArrowDown} period={period}/>
     </div>
@@ -378,7 +382,11 @@ export function Investments({ workspace, period, currency, onEntry, onValue, onS
       <div className="investment-name"><span className="glyph" data-tone="orchid" aria-hidden="true"><ChartNoAxesCombined size={20}/></span><div><h3>{account.name}</h3><p>{account.archived ? "Archived" : valuation ? "Valued " + dayLabel(valuation.valued_on) : "Contribution balance"}</p></div></div>
       <div className="investment-estimate"><span>Estimated value</span><strong className="investment-value">{format(value)}</strong></div>
       <dl className="compact-details"><div><dt>Contributed balance</dt><dd>{format(basis)}</dd></div><div><dt>Unrealized change</dt><dd className={value > basis ? "positive" : ""}>{valuation ? (value >= basis ? "+" : "−") + format(Math.abs(value - basis)) : "—"}</dd></div></dl>
-      {!account.archived && <div className="button-line"><button className="button secondary" onClick={() => onEntry("investment_contribution", account.id)}>Contribute</button><button className="button secondary" onClick={() => onEntry("investment_withdrawal", account.id)}>Withdraw</button><button className="button quiet" onClick={() => onValue(account.id)}>Update valuation</button></div>}
+      {!account.archived && <div className="button-line"><button className="button secondary" onClick={() => onEntry("investment_contribution", account.id)}>Contribute</button><button className="button secondary" onClick={() => onEntry("investment_withdrawal", account.id)}>Withdraw</button>
+        {account.opening_date <= today() && <button className="button secondary" onClick={() => onBalance(account.id)}>Record balance</button>}
+        <button className="button quiet" onClick={() => onValue(account.id)}>Update valuation</button></div>}
     </article>)}</div> : <div className="panel"><Empty title="No investment accounts yet" description="Create an investment account to track contributions and valuations." icon={ChartNoAxesCombined} action={<button className="button secondary" onClick={onSettings}>Manage accounts</button>}/></div>}
+    {!!updates.length && <section className="panel date-group"><h2>Investment balance updates</h2>
+      {updates.map(row => <ActivityRow key={row.id} row={row} workspace={workspace} onOpen={onOpen}/>)}</section>}
   </>;
 }

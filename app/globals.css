@@ -302,6 +302,8 @@ strong { font-weight: 660; }
 .archived-field { display: grid; gap: 3px; font-size: .8rem; color: var(--muted); }
 .entry-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 4px 20px 18px; }
 .entry-toolbar .mode-switch { margin: 0; }
+.sheet-arrow-toggle[aria-pressed=true] { background: var(--soft); color: var(--accent); }
+.sheet-arrow-toggle kbd { padding: 2px 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-family: inherit; font-size: .72rem; }
 .bulk-help { margin: 0 20px 11px; font-size: .82rem; }
 .bulk-help p { color: var(--muted); margin-top: 2px; }
 .grid-scroll { overflow: auto; overscroll-behavior-x: none; max-height: 48dvh; margin-inline: 20px; border: 1px solid var(--line); border-radius: 8px; }
@@ -369,6 +371,7 @@ strong { font-weight: 660; }
 .modal .form-message { margin: 12px 20px 0; }
 .payment-summary { display: flex; gap: 9px; align-items: center; padding: 12px; border-radius: 9px; background: var(--soft); color: var(--accent); }
 .payment-summary strong, .payment-summary small { display: block; }
+.balance-update-preview { justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; }
 .receipt-detail { margin-inline: 20px; }
 .toast { position: fixed; z-index: 3; bottom: 17px; right: 18px; display: flex; align-items: center; gap: 7px; color: #fff; background: #202c42; box-shadow: 0 5px 20px #13271b40; border-radius: 10px; padding: 11px 15px; max-width: min(460px, calc(100% - 35px)); font-size: .86rem; }
 .auth-screen { display: grid; min-height: 100dvh; place-items: center; padding: 20px; }
@@ -698,6 +701,7 @@ strong { font-weight: 660; }
   .reporting-actions .primary { grid-column: 2; grid-row: 3; justify-self: end; }
   .reporting-actions .report-currency { grid-column: 1; grid-row: 3; justify-self: start; }
   .reporting-actions .sheet-action { grid-column: 1; grid-row: 4; justify-self: start; }
+  .reporting-actions .balance-action { grid-column: 2; grid-row: 4; justify-self: end; }
   .desktop-export, .month-long { display: none; }
   .compact-export, .month-short { display: inline; }
   .filter-panel > .search-field { flex-basis: 100%; }
