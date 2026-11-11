@@ -7,7 +7,7 @@ import {
   Check, ChevronDown, FileClock, HandCoins, Layers3, ListFilter, Plus, Search, ShoppingBag, TicketCheck, Users, WalletCards, type LucideIcon,
 } from "lucide-react";
 import {
-  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, inPeriod, monthLabel, overviewHistory, paymentKey, periodLabel, periodReport, reimbursementReport, shiftMonth, today, workspaceForBook,
+  accountCurrency, accountName, activity, claims, dayLabel, kinds, majorAmount, money, monthLabel, overviewHistory, paymentKey, periodLabel, periodReport, reimbursementReport, shiftMonth, today, workspaceForBook,
   type Activity, type Currency, type Kind, type Receipt, type Workspace,
 } from "@/lib/ledger";
 import { accountIcons, accountTones, ActivityRow, Empty, palette } from "./ledger-ui";
