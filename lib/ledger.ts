@@ -203,6 +203,26 @@ export type ReimbursementMode = "none" | "partial" | "full" | "split";
 export const fullReimbursement = "Full";
 export const maxReimbursementPeople = 30;
 
+export function validateSpreadsheetEntry(workspace: Workspace, draft: EntryDraft): Validation {
+  const result = validateEntry(workspace, draft, { requireCustomFields: false });
+  const errors = { ...result.errors };
+  if (draft.kind === "expense" && !draft.people) {
+    const person = draft.counterparty.trim();
+    const claim = draft.reimbursable.trim();
+    if ((person || draft.due_on?.trim()) && (!claim || parseMoney(claim, currencyForAccount(workspace, draft.account_id)) === 0)) {
+      errors.reimbursable = "Enter a positive reimbursement amount or clear Owed by and Due date.";
+    }
+    if (person.length > 160) errors.counterparty = "Enter a name up to 160 characters.";
+  }
+  for (const field of activeFields(workspace)) {
+    const value = draft.custom[field.id];
+    if (field.field_type === "checkbox" && typeof value === "string" && value.trim()) {
+      errors[field.id] = "Choose Yes or No.";
+    }
+  }
+  return Object.keys(errors).length ? { errors } : result;
+}
+
 export function validateFormEntry(workspace: Workspace, draft: EntryDraft, mode: ReimbursementMode): Validation {
   if (draft.kind === "expense" && mode === "split") return validateEntry(workspace, { ...draft, people: draft.people ?? [] });
   draft = { ...draft, people: undefined };

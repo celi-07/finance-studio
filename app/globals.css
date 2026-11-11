@@ -308,14 +308,20 @@ strong { font-weight: 660; }
 .entry-grid { border-collapse: collapse; background: var(--surface); width: max-content; min-width: 100%; font-size: .8rem; }
 .entry-grid th, .entry-grid td { text-align: start; vertical-align: top; border: 1px solid var(--line); min-width: 124px; padding: 4px 5px; }
 .entry-grid th:first-child, .entry-grid td:last-child { min-width: 35px; width: 35px; }
-.entry-grid th:first-child { min-width: 57px; }
+.entry-grid th:first-child { min-width: 84px; }
 .sheet-row-label { display: flex; gap: 4px; align-items: center; justify-content: space-between; }
 .sheet-row-label .icon-button { width: 26px; min-height: 28px; padding: 0; }
+.sheet-row-grip { display: grid; place-items: center; width: 20px; min-height: 28px; border-radius: 6px; color: var(--muted); cursor: grab; touch-action: none; }
+.sheet-row-grip:hover, .entry-grid tr[data-row-moving] .sheet-row-grip { background: var(--soft); color: var(--accent); }
+.entry-grid tr[data-row-moving] .sheet-row-grip { cursor: grabbing; }
+.entry-grid tr[data-row-drop=above] > :is(td, th) { box-shadow: inset 0 2px var(--accent); }
+.entry-grid tr[data-row-drop=below] > :is(td, th) { box-shadow: inset 0 -2px var(--accent); }
 .entry-grid th.col-description, .entry-grid th.col-notes { min-width: 168px; }
 .entry-grid thead { position: sticky; top: 0; z-index: 1; background: var(--control); }
 .entry-grid th { padding-block: 8px; }
 .entry-grid th[title] { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 .entry-grid input { min-height: 36px; padding: 4px 6px; }
+.entry-grid input:disabled { background: var(--control); cursor: not-allowed; opacity: .65; }
 .sheet-cell { position: relative; }
 .person-input { display: block; }
 .sheet-cell:has(.cell-choice) > input { padding-inline-end: 34px; }
