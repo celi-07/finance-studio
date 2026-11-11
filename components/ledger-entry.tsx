@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState, type CSSProperties, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import { ChevronDown, CircleAlert, HandCoins, ListPlus, Plus, Trash2, UserRoundPlus } from "lucide-react";
+import { ChevronDown, CircleAlert, GripVertical, HandCoins, ListPlus, Plus, Trash2, UserRoundPlus } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import {
   accountCurrency, activeFields, blankDraft, currencyForAccount, currencyLabel, draftFrom, editableAccounts, formatMoneyInput, groupNumber, historicalAccounts, kinds, needsDestination, parseDate, validateEntry, validateFormEntry, workspaceForCurrency,
@@ -20,6 +20,7 @@ const requiredColumns = new Set(["occurred_on", "kind", "description", "amount",
 const batchValidationMessage = "Fill in Date, Type, Description, Amount, and Account on each used row. Review the highlighted cells.";
 const splitValidationMessage = "Review the highlighted reimbursement shares before saving.";
 const splitColumns = new Set(["reimbursable", "counterparty", "due_on"]);
+const cellDirections = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0] } as const;
 function kindMatch(value: string) {
   const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
   return Object.hasOwn(kinds, normalized) ? normalized : value.trim();
@@ -216,6 +217,10 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
   const [selected, setSelected] = useState<{ row: string; anchor: number; columns: number[] } | null>(null);
   const [fill, setFill] = useState<{ start: number; end: number; columns: number[] } | null>(null);
   const dragFill = useRef<typeof fill>(null);
+  const [rowMove, setRowMove] = useState<{ source: string; target: string } | null>(null);
+  const dragRow = useRef<typeof rowMove>(null);
+  const movingRowIndex = rowMove ? rows.findIndex(row => row.id === rowMove.source) : -1;
+  const editingCell = useRef(false);
   const grid = useRef<HTMLDivElement>(null);
   const [dialog, setDialog] = useState<HTMLDialogElement | null>(null);
   const bindGrid = useCallback((node: HTMLDivElement | null) => {
@@ -359,24 +364,28 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     setRowErrors({});
   }
   function beginFill(event: PointerEvent<HTMLButtonElement>, start: number, column: number) {
-    if (working || event.button !== 0) return;
+    if (working || event.button !== 0 || dragRow.current) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const selectedColumns = selected?.row === rows[start].id && selected.columns.includes(column) ? selected.columns : [column];
     dragFill.current = { start, end: start, columns: selectedColumns };
     setFill(dragFill.current);
   }
-  function moveFill(event: PointerEvent<HTMLButtonElement>) {
-    const selection = dragFill.current;
-    if (!selection || !grid.current) return;
+  function rowAtPointer(event: PointerEvent<HTMLElement>) {
+    if (!grid.current) return;
     const area = grid.current.getBoundingClientRect();
     if (event.clientY > area.bottom - 24) grid.current.scrollTop += 16;
     else if (event.clientY < area.top + 45) grid.current.scrollTop -= 16;
     const bodyTop = grid.current.querySelector("thead")?.getBoundingClientRect().bottom ?? area.top;
     const row = document.elementFromPoint(Math.min(area.right - 4, Math.max(area.left + 4, event.clientX)),
       Math.min(area.bottom - 4, Math.max(bodyTop + 1, event.clientY)))?.closest<HTMLElement>("tr[data-sheet-row]");
-    const end = row ? Number(row.dataset.sheetRow) : selection.end;
-    if (end === selection.end) return;
+    if (row) return Number(row.dataset.sheetRow);
+  }
+  function moveFill(event: PointerEvent<HTMLButtonElement>) {
+    const selection = dragFill.current;
+    if (!selection) return;
+    const end = rowAtPointer(event);
+    if (end === undefined || end === selection.end) return;
     dragFill.current = { ...selection, end };
     setFill(dragFill.current);
   }
@@ -386,15 +395,62 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     setFill(null);
     if (selection && commit) fillFrom(selection.start, selection.end, selection.columns);
   }
-  function addRows(count: number, beforeId?: string) {
+  function addRows(count: number, anchorId?: string, position: "above" | "below" = "above") {
     setRows(current => {
-      const before = beforeId ? current.findIndex(row => row.id === beforeId) : current.length;
-      if (before < 0) return current;
+      const anchor = anchorId ? current.findIndex(row => row.id === anchorId) : current.length;
+      if (anchor < 0) return current;
+      const at = anchorId && position === "below" ? anchor + 1 : anchor;
       const inserted = Array.from({ length: Math.min(count, maxRows - current.length) }, makeRow);
-      return [...current.slice(0, before), ...inserted, ...current.slice(before)];
+      return [...current.slice(0, at), ...inserted, ...current.slice(at)];
     });
   }
+  function moveRow(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return;
+    setRows(current => {
+      const source = current.findIndex(row => row.id === sourceId);
+      const target = current.findIndex(row => row.id === targetId);
+      if (source < 0 || target < 0) return current;
+      const next = [...current];
+      const [row] = next.splice(source, 1);
+      next.splice(target, 0, row);
+      return next;
+    });
+  }
+  function beginRowMove(event: PointerEvent<HTMLSpanElement>, rowId: string) {
+    if (working || event.button !== 0 || !event.isPrimary || rows.length < 2 || dragFill.current) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRow.current = { source: rowId, target: rowId };
+    setRowMove(dragRow.current);
+  }
+  function previewRowMove(event: PointerEvent<HTMLSpanElement>) {
+    const move = dragRow.current;
+    if (!move) return;
+    const index = rowAtPointer(event);
+    const target = index === undefined ? undefined : rows[index]?.id;
+    if (!target || target === move.target) return;
+    dragRow.current = { ...move, target };
+    setRowMove(dragRow.current);
+  }
+  function finishRowMove(event?: PointerEvent<HTMLSpanElement>) {
+    const move = dragRow.current;
+    dragRow.current = null;
+    setRowMove(null);
+    const area = grid.current?.getBoundingClientRect();
+    if (move && event && area && event.clientX >= area.left && event.clientX < area.right &&
+      event.clientY >= area.top && event.clientY < area.bottom) {
+      moveRow(move.source, move.target);
+    }
+  }
+  function focusCell(index: number, col: number) {
+    const input = grid.current?.querySelector<HTMLInputElement>("#cell-" + index + "-" + col);
+    if (!input || input.disabled) return false;
+    input.focus();
+    setSelected({ row: rows[index].id, anchor: col, columns: [col] });
+    return true;
+  }
   function advance(event: KeyboardEvent<HTMLInputElement>, index: number, col: number) {
+    if (event.nativeEvent.isComposing || working) return;
     const copyFromBelow = event.altKey && event.shiftKey && event.key === "ArrowUp";
     const copyFromAbove = (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "d";
     const sourceIndex = index + (copyFromBelow ? 1 : -1);
@@ -404,13 +460,35 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
       fillFrom(sourceIndex, index, selectedColumns);
       return;
     }
-    if (event.key !== "Enter") return;
+    if (event.key === "F2") {
+      event.preventDefault();
+      editingCell.current = true;
+      const input = event.currentTarget;
+      input.setSelectionRange(input.value.length, input.value.length);
+      return;
+    }
+    if (editingCell.current && event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      editingCell.current = false;
+      return;
+    }
+    if (!Object.hasOwn(cellDirections, event.key)) return;
+    const enter = event.key === "Enter";
+    if (!enter && (editingCell.current || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) return;
     event.preventDefault();
-    const next = document.querySelector<HTMLInputElement>('#cell-' + (index + 1) + '-' + col);
-    if (next) next.focus();
-    else if (rows.length < maxRows) {
+    const [rowStep, columnStep] = cellDirections[event.key as keyof typeof cellDirections];
+    let nextRow = index + rowStep;
+    let nextColumn = col + columnStep;
+    while (nextRow >= 0 && nextRow < rows.length && nextColumn >= 0 && nextColumn < columns.length) {
+      if (focusCell(nextRow, nextColumn)) return;
+      nextRow += rowStep;
+      nextColumn += columnStep;
+    }
+    if (enter && rows.length < maxRows) {
       addRows(1);
-      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#cell-' + (index + 1) + '-' + col)?.focus());
+      setSelected(null);
+      requestAnimationFrame(() => grid.current?.querySelector<HTMLInputElement>("#cell-" + nextRow + "-" + col)?.focus());
     }
   }
   async function saveForm(event: FormEvent<HTMLFormElement>) {
@@ -461,12 +539,33 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
     </div>{onPayment && <button type="button" className="button secondary" onClick={onPayment} disabled={working}><HandCoins size={16}/> Reimbursement payment</button>}</div>}
     {bulk ? <form className="entry-mode" key="bulk" onSubmit={saveRows} noValidate>
       <div className="bulk-help"><strong>Paste from Excel or Sheets</strong><p>Use account and category names from this sheet. Each row uses its account’s currency. Enter dates like 2026-11-07 or 07/11/2026. Use the person-plus button in an expense’s Reimbursement column to add several people.</p>
-        <p>Use the button next to a row number to insert above it. Drag a cell’s corner up or down to fill. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from above, and Alt+Shift+↑ copies from below.</p></div>
+        <p>Use the arrow keys to move between cells. Press F2 to move the cursor within a cell. Drag a row by its grip, or open its row menu to move it or insert a row.</p>
+        <p>Drag a cell’s corner up or down to fill. Shift-click for a range, or Ctrl/⌘-click to select individual cells in the same row. Ctrl/⌘+D copies from above, and Alt+Shift+↑ copies from below.</p></div>
       <div className="grid-scroll" ref={bindGrid} tabIndex={0} aria-label="Spreadsheet entry grid">
         <table className="entry-grid"><thead><tr><th scope="col">#</th>{columns.map(([key, label, hint]) => <th key={key} scope="col" className={"col-" + key} title={hint} aria-description={hint}>{label}</th>)}<th scope="col">Remove</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}><th scope="row">
-            <span className="sheet-row-label">{index + 1}<button type="button" className="icon-button" title="Insert row above"
-              aria-label={"Insert row above row " + (index + 1)} disabled={rows.length >= maxRows || working} onClick={() => addRows(1, row.id)}><ListPlus size={15}/></button></span>
+          <tbody>{rows.map((row, index) => <tr key={row.id} data-sheet-row={index}
+            data-row-moving={rowMove?.source === row.id || undefined}
+            data-row-drop={rowMove?.target === row.id && index !== movingRowIndex ? index < movingRowIndex ? "above" : "below" : undefined}><th scope="row">
+            <span className="sheet-row-label">
+              {rows.length > 1 && <span className="sheet-row-grip" title="Drag to move row" aria-hidden="true"
+                onPointerDown={event => beginRowMove(event, row.id)} onPointerMove={previewRowMove}
+                onPointerUp={finishRowMove} onPointerCancel={() => finishRowMove()} onLostPointerCapture={() => finishRowMove()}>
+                <GripVertical size={15}/>
+              </span>}
+              <span>{index + 1}</span>
+              <DropdownMenu.Root modal={false}>
+                <DropdownMenu.Trigger type="button" className="icon-button" title="Row actions"
+                  aria-label={"Actions for row " + (index + 1)} disabled={working}><ListPlus size={15} aria-hidden="true"/></DropdownMenu.Trigger>
+                <DropdownMenu.Portal container={dialog ?? undefined}>
+                  <DropdownMenu.Content className="picker-menu row-menu" sideOffset={6} align="start" collisionPadding={10}>
+                    <DropdownMenu.Item className="picker-option" disabled={rows.length >= maxRows} onSelect={() => addRows(1, row.id)}>Insert row above</DropdownMenu.Item>
+                    <DropdownMenu.Item className="picker-option" disabled={rows.length >= maxRows} onSelect={() => addRows(1, row.id, "below")}>Insert row below</DropdownMenu.Item>
+                    <DropdownMenu.Item className="picker-option" disabled={index === 0} onSelect={() => moveRow(row.id, rows[index - 1].id)}>Move row up</DropdownMenu.Item>
+                    <DropdownMenu.Item className="picker-option" disabled={index === rows.length - 1} onSelect={() => moveRow(row.id, rows[index + 1].id)}>Move row down</DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </span>
           </th>
             {columns.map(([key, label], col) => {
               const error = rowErrors[row.id]?.[key];
@@ -486,6 +585,7 @@ export function EntryDialog({ workspace, month, currency, original, kind, preset
                 inputMode={monetary ? "decimal" : undefined} onFocus={monetary ? () => setEditingAmount(amountId) : undefined}
                 onChange={event => updateCell(row, key, event.target.value)}
                 onBlur={event => {
+                  editingCell.current = false;
                   if (monetary) { setEditingAmount(null); return; }
                   const value = event.target.value;
                   const next = fieldById.get(key)?.field_type === "number" ? groupNumber(value) : value;
