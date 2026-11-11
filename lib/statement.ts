@@ -182,11 +182,7 @@ export async function createStatement(workspace: Workspace, period: string, curr
         num(claim.amount_minor), num(claim.paid), num(claim.remaining),
       ]) : [["", "No claims in this view", "", "", "", ""]],
       { 0: { cellWidth: 31 }, 2: { cellWidth: 18 }, 3: { halign: "right", cellWidth: 24 }, 4: { halign: "right", cellWidth: 24 }, 5: { halign: "right", cellWidth: 26 } },
-      reimbursements ? [
-        ["", "Opening outstanding", "", "", "", num(reimbursements.opening)],
-        ["", "New claims and payments in period", "", num(reimbursements.newClaims), num(reimbursements.collected), ""],
-        ["", "Closing outstanding", "", "", "", num(reimbursements.outstanding)],
-      ] : []);
+      reimbursements ? [["", "Total outstanding", "", "", "", num(reimbursements.outstanding)]] : []);
     if (reimbursements) {
       const descriptions = new Map(relevant.map(claim => [claim.key, claim.entry.description + "\n" + claim.counterparty]));
       block("Payments received in period", ["Date", "Claim / notes", "Deposit account", "Amount"],
