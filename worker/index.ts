@@ -15,7 +15,7 @@ function documentPolicy(env: Cloudflare.Env) {
   } catch {
     // Invalid configuration renders the connection screen with same-origin access only.
   }
-  return [
+  const policy = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'${googleSignIn ? " https://accounts.google.com/gsi/client" : ""}`,
     `style-src 'self' 'unsafe-inline'${googleSignIn ? " https://accounts.google.com/gsi/style" : ""}`,
@@ -27,6 +27,7 @@ function documentPolicy(env: Cloudflare.Env) {
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join("; ");
+  return { policy, googleSignIn };
 }
 
 const worker = {
@@ -60,7 +61,7 @@ const worker = {
     if (import.meta.env.DEV) return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
 
     // Vinext uses the request policy to apply the nonce to its hydration scripts.
-    const policy = documentPolicy(env);
+    const { policy, googleSignIn } = documentPolicy(env);
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("Content-Security-Policy", policy);
     requestHeaders.delete("Content-Security-Policy-Report-Only");
@@ -70,7 +71,7 @@ const worker = {
 
     const headers = new Headers(response.headers);
     headers.set("Content-Security-Policy", policy);
-    headers.set("Referrer-Policy", "no-referrer");
+    headers.set("Referrer-Policy", googleSignIn ? "strict-origin" : "no-referrer");
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("X-Frame-Options", "DENY");
     headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
