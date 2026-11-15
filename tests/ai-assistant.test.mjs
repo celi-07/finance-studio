@@ -194,3 +194,17 @@ test("default authentication rejects invalid users and unverified sessions befor
   verified = true; assert.equal((await handleAssistant(request(), env)).status, 429);
   assert.equal(providerCalls, 0);
 });
+
+test("empty provider credits give a clear availability error rather than suggesting a retry", async t => {
+  t.mock.method(globalThis, "fetch", async url => {
+    const path = String(url);
+    if (path.includes("api.openai.com")) return Response.json({ error: { code: "credit_balance_exhausted", message: "No API credits remaining." } }, { status: 429 });
+    if (path.endsWith("/auth/v1/user")) return Response.json({ id: "owner", aud: "authenticated" });
+    if (path.includes("ledger_email_verified") || path.includes("ledger_ai_reserve")) return Response.json(true);
+    if (path.includes("/rest/v1/")) return Response.json([]);
+    throw Error(`Unexpected endpoint ${path}`);
+  });
+  const response = await handleAssistant(request(), env);
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /no credits/);
+});

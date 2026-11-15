@@ -32,6 +32,10 @@ const defaultDependencies: AssistantDependencies = {
   async respond(body, key, signal) {
     const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
     if (!response.ok) {
+      const failure = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+      if (["credit_balance_exhausted", "insufficient_quota", "billing_hard_limit_reached", "billing_not_active"].includes(failure?.error?.code ?? "") || response.status === 402) {
+        throw new AssistantError("AI is unavailable because its API account has no credits. Contact the site owner.", 503);
+      }
       if (response.status === 429) throw new AssistantError("The AI provider has reached its usage limit. Try again shortly or contact the site owner.", 429);
       throw new AssistantError("The AI service could not complete this request. Try again or contact the site owner.", 502);
     }
