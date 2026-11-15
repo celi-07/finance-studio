@@ -6,7 +6,7 @@ declare namespace Cloudflare {
     SUPABASE_PUBLISHABLE_KEY?: string;
     FINANCE_AUTH_MODE?: string;
     GOOGLE_CLIENT_ID?: string;
-    OPENAI_API_KEY?: string;
-    OPENAI_MODEL?: string;
+    GEMINI_API_KEY?: string;
+    GEMINI_MODEL?: string;
   }
 }

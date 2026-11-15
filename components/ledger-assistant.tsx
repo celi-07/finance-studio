@@ -166,7 +166,7 @@ export function EntryAssistant({ workspace, currency, cloud, sheetId, onSave }: 
       </div>
       <div className="assistant-input-area">
         {!cloud && <p className="form-message">Sign in to a connected workspace to use AI. Demo records stay on this device.</p>}
-        <p className="assistant-privacy">When you send, OpenAI processes your message, attachments and relevant financial records. Finance Studio keeps chat history in this tab only. Start a new chat to clear it. <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a></p>
+        <p className="assistant-privacy">When you send, Google Gemini processes your message, attachments and relevant financial records. Finance Studio keeps chat history in this tab only. Start a new chat to clear it. <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a></p>
         {!!files.length && <div className="assistant-files">{files.map((file, index) => <span key={index}><FileText size={14}/>{file.name}<button type="button" disabled={locked} onClick={() => setFiles(current => current.filter((_, i) => i !== index))} aria-label={`Remove ${file.name}`}><X size={14}/></button></span>)}</div>}
         <form className="assistant-composer" onSubmit={send}>
           <input ref={upload} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.csv,.txt" className="sr-only" disabled={locked || !cloud} onChange={e => void attach(e.target.files)}/>
