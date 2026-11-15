@@ -14,7 +14,7 @@ export default function PrivacyPage() {
     </header>
     <main className="panel privacy-policy">
       <h1>Privacy Policy</h1>
-      <p className="policy-date">Last updated <time dateTime="2026-11-10">November 10, 2026</time></p>
+      <p className="policy-date">Last updated <time dateTime="2026-11-15">November 15, 2026</time></p>
       <p>Finance Studio is a personal finance tracker. This policy explains what happens to your account information and the financial records you choose to enter.</p>
 
       <section aria-labelledby="google-sign-in">
@@ -27,6 +27,14 @@ export default function PrivacyPage() {
         <h2 id="financial-records">Financial records</h2>
         <p>Finance Studio stores the information you enter, such as account names and balances, transactions, reimbursement details, investments, goals and notes. The app uses this information to maintain your ledger and generate charts and reports. Finance Studio does not connect to banks or ask for bank login credentials.</p>
         <p>In the signed-in app, Supabase stores your records and enforces account-level access controls. In the demo, changes stay in your browser’s local storage.</p>
+      </section>
+
+      <section aria-labelledby="ai-assistant">
+        <h2 id="ai-assistant">AI assistant and statement uploads</h2>
+        <p>The public AI portfolio demo uses fixed fictional scenarios, an included sample PDF, and a server-supplied fictional ledger. Google’s Gemini API generates live scenario replies. An optional PDF example recorded during development is explicitly labeled as a recorded response. The demo does not accept custom messages or uploaded files, read your signed-in financial records, or send your local preview edits to Google.</p>
+        <p>Demo conversations and review entries stay in browser-tab memory. The server returns a signed conversation state so subsequent demo steps can be verified; it is not a database record. Starting a new chat or closing the tab clears the local conversation. Reports refer to the original fixed sample ledger, while edited and submitted review rows stay only in the tab.</p>
+        <p>Google processes the fictional API content under its <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>, including the unpaid-service provisions permitting product improvement and human review. No real bank statements or personal financial records are accepted by this demo. A separate request counter stores daily counts and a keyed hash derived from the visitor’s network address without the raw address or chat content. Rows older than seven days are cleared when the demo next accepts a request. Hosting providers may retain technical request logs under their own policies.</p>
+        <p>AI responses and proposed entries can contain errors. Review the sample document, calculated report evidence, dates, amounts and account mapping before submitting a fictional preview. Demo submissions never write to your Finance Studio account.</p>
       </section>
 
       <section aria-labelledby="service-providers">

@@ -68,6 +68,21 @@ The grid opens with one blank row. Use **Add row** for one more, or the arrow be
 
 For expenses, the form offers **None**, **Partial**, and **Full** reimbursement. In the spreadsheet, use **Reimbursement (optional)** for the amount owed back and **Amount** for the entire expense. Leave **Due date** blank when there is no deadline.
 
-Use **Assistant** to draft one income or expense in plain language. Try **Beli nasi goreng Rp47.900 tanggal 3 Okt 2026**, then send **pakai BCA** or edit the preview directly. The browser uses local rules to prepare the draft. Select **Submit transaction** to save it.
+## Fictional AI portfolio demo
+
+`/ai-demo` is public and requires no sign-in. Gemini 3.5 Flash generates live responses for five fixed fictional scenarios: complete-history summaries, expense searches, sample PDF extraction, a split dinner expense, and a follow-up correction. The signed-in app’s Assistant tab embeds the same isolated demo.
+
+The public API accepts only a scenario ID and optional server-signed conversation state. It never accepts arbitrary prompts, uploads, ledger rows, sheet IDs, or manual preview edits. The server supplies the fictional workspace and the included sample PDF; it does not read private financial tables or user sessions. Native Gemini function calls use validated decoding. Reports calculate exact currency-separated totals; previews include field validation, duplicate checks and statement reconciliation. Edited/approved entries are added only to an in-memory browser review ledger, and AI reports continue to describe the original sample history.
+
+To activate it:
+
+1. Apply migration [012 · public AI demo counters](supabase/migrations/012_ai_demo_usage.sql). Earlier migration 011 can remain installed but is not used by this demo.
+2. Set **GEMINI_API_KEY** as a server-only Production secret in Vercel. Optionally set **GEMINI_MODEL** (default `gemini-3.5-flash`). The model must support PDFs and validated function calling. Never use a `NEXT_PUBLIC_*` prefix for this secret.
+3. Keep the existing public Supabase URL and publishable-key configuration. The demo’s only database operation is the anonymous `ledger_ai_demo_reserve` counter RPC. It does not use a service-role key or access any financial tables.
+4. Deploy the `vercel` branch with `npx next build`. The API route allows 240 seconds. Worker hosting dispatches the same endpoint to the demo handler.
+5. Open `/ai-demo`, run the sample PDF and dinner/correction scenarios, edit a draft and submit it to the tab’s review ledger.
+
+The free shared demo is limited persistently to 100 visitor requests per UTC day globally, 20 per visitor, and at least five seconds between a visitor’s requests. Counters use a keyed network-address hash rather than raw IP addresses and are cleared once older than seven days on the next accepted request. Provider quotas may be lower. An optional, explicitly labeled recorded Gemini PDF example supports preview editing and browser-only submission when live quota is unavailable. Recorded replies and local edits never re-enter live AI context. Conversations expire after one hour and at most eight turns; the server signs their context to prevent visitors from injecting arbitrary content. The model has read/report/preview tools only and no SQL, arbitrary network, or save tool. Chat, review edits and added rows are not saved to a server database. The privacy policy describes Google’s processing of fictional API content.
+
 
 Use **Month**, **Year**, or **All time** to set the reporting period on Overview, Transactions, Reimbursements, and Investments. The PDF uses the same period. The activity calendar appears in Month view. Savings goals show cash and allocations as of today.
