@@ -873,3 +873,17 @@ strong { font-weight: 660; }
   @keyframes sheet-in { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: none; } }
   @keyframes mobile-sheet-in { from { opacity: .6; translate: 0 45px; } to { opacity: 1; translate: none; } }
 }
+
+.ai-demo { display: grid; gap: 18px; }
+.ai-demo-page { width: min(1220px, 100%); margin: 0 auto; padding: 24px; }
+.ai-demo-page > h1 { margin-bottom: 8px; }
+.ai-demo-page > p { margin-bottom: 24px; }
+.ai-demo-banner { display: flex; align-items: center; gap: 20px; justify-content: space-between; padding: 20px; }
+.ai-demo-banner h2 { margin: 10px 0 6px; }
+.ai-demo-banner p, .ai-demo-ledger > p { color: var(--muted); font-size: .88rem; line-height: 1.6; }
+.ai-demo-banner > button { flex-shrink: 0; }
+.ai-demo-ledger { padding: 20px; min-width: 0; }
+.ai-demo-ledger > p { margin: 8px 0 14px; }
+.ai-demo-ledger details { margin-top: 18px; }
+.ai-demo-ledger summary { cursor: pointer; padding: 8px 0; }
+@media (max-width: 650px) { .ai-demo-banner { display: block; } .ai-demo-banner > button { margin-top: 14px; } .ai-demo-page { padding: 16px; } }

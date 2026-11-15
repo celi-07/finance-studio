@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, ChartNoAxesCombined, Layers3, LockKeyhole, Sheet } from "lucide-react";
 import { getSupabase } from "@/lib/ledger-cloud";
@@ -15,7 +16,7 @@ export function FinanceWelcome({ demo, onStart }: { demo: boolean; onStart: () =
         <p className="welcome-kicker">Free personal finance tracker</p>
         <h1 id="welcome-title">See where your<br className="welcome-break"/> money goes.</h1>
         <p>Track spending, income, reimbursements and investments in one simple place. Keep personal and business records separate, then see the whole picture at a glance.</p>
-        <div className="button-line"><button className="button primary" onClick={onStart}>{demo ? "Try the demo" : "Get started"}<ArrowRight size={16}/></button><a className="button quiet" href="#features">Explore features</a></div>
+        <div className="button-line"><button className="button primary" onClick={onStart}>{demo ? "Try the demo" : "Get started"}<ArrowRight size={16}/></button><Link className="button secondary" href="/ai-demo">Try the AI demo</Link><a className="button quiet" href="#features">Explore features</a></div>
         <div className="welcome-privacy"><LockKeyhole size={15} aria-hidden="true"/> {demo ? "The demo uses sample data and saves changes in this browser." : "Your records are private to your verified account."}</div>
       </div>
       <div className="panel welcome-preview" aria-label="Example overview with fictional data">

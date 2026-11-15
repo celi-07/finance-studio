@@ -1,0 +1,101 @@
+{
+  "recordedAt": "2026-11-15",
+  "provider": "Google Gemini",
+  "model": "gemini-3.5-flash",
+  "sourceFile": "fictional-statement.pdf",
+  "text": "I have prepared a draft preview of all 3 transactions from **fictional-statement.pdf** for your **BCA** account. Nothing has been saved to your account yet\u2014please review the entries in the application and click **Submit** when ready.\n\n---\n\n### Statement Summary & Reconciliation\n* **Filename:** `fictional-statement.pdf`\n* **Account:** BCA (`bank`)\n* **Currency:** IDR\n* **Opening Balance:** IDR 1,000,000.00\n* **Total Debits:** IDR 196,900.50 (Matches extracted total)\n* **Total Credits:** IDR 5,000,000.00 (Matches extracted total)\n* **Closing Balance:** IDR 5,803,099.50 (Matches calculated total)\n* **Transaction Count:** 3 rows extracted / 3 expected\n\n---\n\n### Prepared Draft Transactions\n\n1. **Salary**\n   * **Date:** `2026-10-01`\n   * **Type:** Income\n   * **Amount:** `5000000.00 IDR`\n   * **Account:** BCA (`bank`)\n   * **Source Quote (Page 1):** `\"2026-10-01 | Salary | - | 5,000,000.00\"`\n\n2. **Lunch**\n   * **Date:** `2026-10-03`\n   * **Type:** Expense\n   * **Amount:** `47900.50 IDR`\n   * **Account:** BCA (`bank`)\n   * **Source Quote (Page 1):** `\"2026-10-03 | Lunch | 47,900.50 | -\"`\n\n3. **Subscription**\n   * **Date:** `2026-10-05`\n   * **Type:** Expense\n   * **Amount:** `149000.00 IDR`\n   * **Account:** BCA (`bank`)\n   * **Source Quote (Page 1):** `\"2026-10-05 | Subscription | 149,000.00 | -\"`",
+  "previews": [
+    {
+      "draft": {
+        "id": "7a741c33-0fc7-4200-a2c2-ca387704e539",
+        "kind": "income",
+        "occurred_on": "2026-10-01",
+        "description": "Salary",
+        "amount": "5000000.00",
+        "account_id": "bank",
+        "destination_account_id": null,
+        "category_id": null,
+        "notes": "",
+        "reimbursable": "",
+        "counterparty": "",
+        "due_on": null,
+        "custom": {}
+      },
+      "currency": "IDR",
+      "source": {
+        "filename": "fictional-statement.pdf",
+        "page": 1,
+        "quote": "2026-10-01 | Salary | - | 5,000,000.00"
+      },
+      "warnings": [],
+      "errors": {},
+      "duplicates": []
+    },
+    {
+      "draft": {
+        "id": "944750f4-d27d-4770-a526-f52c2ad30462",
+        "kind": "expense",
+        "occurred_on": "2026-10-03",
+        "description": "Lunch",
+        "amount": "47900.50",
+        "account_id": "bank",
+        "destination_account_id": null,
+        "category_id": null,
+        "notes": "",
+        "reimbursable": "",
+        "counterparty": "",
+        "due_on": null,
+        "custom": {}
+      },
+      "currency": "IDR",
+      "source": {
+        "filename": "fictional-statement.pdf",
+        "page": 1,
+        "quote": "2026-10-03 | Lunch | 47,900.50 | -"
+      },
+      "warnings": [],
+      "errors": {},
+      "duplicates": [
+        "lunch"
+      ]
+    },
+    {
+      "draft": {
+        "id": "bdc8a7e0-125d-4455-a902-37cd28c302fa",
+        "kind": "expense",
+        "occurred_on": "2026-10-05",
+        "description": "Subscription",
+        "amount": "149000.00",
+        "account_id": "bank",
+        "destination_account_id": null,
+        "category_id": null,
+        "notes": "",
+        "reimbursable": "",
+        "counterparty": "",
+        "due_on": null,
+        "custom": {}
+      },
+      "currency": "IDR",
+      "source": {
+        "filename": "fictional-statement.pdf",
+        "page": 1,
+        "quote": "2026-10-05 | Subscription | 149,000.00 | -"
+      },
+      "warnings": [],
+      "errors": {},
+      "duplicates": [
+        "subscription"
+      ]
+    }
+  ],
+  "statement": {
+    "filename": "fictional-statement.pdf",
+    "currency": "IDR",
+    "opening_balance": "1000000.00",
+    "closing_balance": "5803099.50",
+    "total_debits": "196900.50",
+    "total_credits": "5000000.00",
+    "transaction_count": 3
+  },
+  "evidence": []
+}

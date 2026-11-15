@@ -361,7 +361,7 @@ const guideSteps = [
   ["Track reimbursements", "Save people in Settings → Reimbursement people. Choose Full amount for a complete reimbursement or Split by person to add several claims. Open Reimbursements or Add entries to record a payment or link an existing income entry. Open a payment to delete it or unlink the original income."],
   ["Track investments", "Add an investment account, then record contributions or withdrawals between accounts in the same sheet and currency. In Investments, use Update valuation to record its current total value."],
   ["Review and export", "Choose Month, Year, or All time. Overview can show one sheet or All sheets, with each currency totaled separately. Select one currency to download a PDF for the selected period."],
-  ["Chat with the Assistant", "Ask about your saved finances, describe entries, or attach a PDF statement. Review the source details and editable drafts, resolve any discrepancies, then submit the selected entries."],
+  ["Explore the AI demo", "Choose fictional scenarios for summaries, the included sample PDF, or split reimbursements. Review and edit the drafts, then submit to a browser-only review ledger. The AI cannot access your private financial records."],
   ["Customize your entry form", "In Settings, create income or expense categories and add custom fields such as an invoice reference. Fields appear in both the form and the spreadsheet."],
 ] as const;
 

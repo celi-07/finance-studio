@@ -1,7 +1,5 @@
 import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
 import { configuredCloud, type CloudConfig } from "./ledger-cloud-config.ts";
-import { loadCloud } from "./ledger-cloud.ts";
 import { accountCurrency, today, workspaceForBook, type Workspace } from "./ledger.ts";
 import { assistantRequestSchema, MAX_UPLOAD_BYTES, previewToolSchema, type AssistantResult } from "./ai-contract.ts";
 import { detailsQuerySchema, financialReport, findTransactions, makePreviews, recordDetails, reportQuerySchema, searchQuerySchema, statementChecks } from "./ai-finance.ts";
@@ -22,17 +20,9 @@ class AssistantError extends Error { status: number; constructor(message: string
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 
 const defaultDependencies: AssistantDependencies = {
-  async authenticate(token, cloud) {
-    // Never use a service-role key. The caller's signed JWT and RLS govern every read.
-    const client = createClient(cloud.url, cloud.key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-    const { data, error } = await client.auth.getUser(token);
-    if (error || !data.user) throw new AssistantError("Sign in again before using the assistant.", 401);
-    const proof = await client.rpc("ledger_email_verified");
-    if (proof.error || proof.data !== true) throw new AssistantError("Complete email verification before using the assistant.", 403);
-    const reservation = await client.rpc("ledger_ai_reserve");
-    if (reservation.error) throw new AssistantError("The assistant is waiting for its database setup. Contact the site owner.", 503);
-    if (reservation.data !== true) throw new AssistantError("Your assistant request limit has been reached. Try again later.", 429);
-    return { userId: data.user.id, workspace: await loadCloud(client, data.user.id) };
+  async authenticate() {
+    // The engine is reachable only through the fictional-demo adapter. No private-data reader exists here.
+    throw new AssistantError("Only the fictional AI demo is available.", 403);
   },
   async respond(body, key, signal) {
     const { model, ...payload } = body;
@@ -48,6 +38,7 @@ const defaultDependencies: AssistantDependencies = {
     return response.json();
   },
 };
+export const respondWithGemini = defaultDependencies.respond;
 function tool(name: string, description: string, schema: z.ZodType) {
   const parameters = z.toJSONSchema(schema); delete parameters.$schema;
   return { name, description, parametersJsonSchema: parameters };
@@ -75,7 +66,8 @@ async function readBody(request: Request) {
   catch { throw new AssistantError("Check the message and attachments, then try again.", 400); }
 }
 function instructions(metadata: unknown) {
-  return `You are Finance Studio's AI assistant. Today is ${today()} in Asia/Jakarta.
+  return `You are Finance Studio's fictional portfolio demo assistant. Today is ${today()} in Asia/Jakarta.
+All records, people, prompts and attached documents are fixed fictional examples. You cannot access a visitor's private records. Refer to the sample ledger explicitly. Preview submissions change only a browser-tab demo ledger, never a private account or database. Reports always describe the original fixed sample ledger, not browser-only edits. Do not imply that review edits or submissions have been stored on a server.
 Understand complex English, Indonesian, and mixed-language financial instructions. Read PDFs including scanned page images; use visible source text, not guesswork. Have a useful natural conversation; do not ask users to enter JSON. Use readable account/category names in replies and omit internal record IDs.
 Financial accuracy: call get_financial_report before summaries and financial conclusions. Quote exact tool-supplied formatted values, distinguish gross expenses from personal spending, transfers from income, receipts from new income, and balances from flow. Never add different currencies. Reference [R1], [R2], etc. for reports or searches. Do not claim the ledger includes unrecorded real-world activity. Explain gaps, uncertainty, and future-dated entries. No financial fact may be invented. If a tool gives only one page of results, do not present it as complete. Do not calculate totals yourself when a report tool can do so.
 Imports and natural language entries: use prepare_transaction_preview. The user must edit/approve and click Submit in the app. You have NO write tool, cannot save data, and must never claim you saved it. Convert amounts into decimal major-unit strings without thousands separators, e.g. 47900.00 IDR, 12.50 USD. IDR amounts also have two minor digits. Dates must be explicit YYYY-MM-DD; ask about ambiguous year, debit/credit convention, or account mapping. Use null for missing dates/accounts. Never silently use today or the first account. A statement closing/opening balance is not a transaction. Internal transfers need both accounts; do not classify them as income/expense just to pass validation. Do not import an entry into a different sheet or account currency. Match statement counts and totals; warn when the source and extraction do not reconcile. Do not claim perfect extraction. Include an exact source quote and page for each document row. For corrections, return the entire updated unsaved preview. Respect manual changes in current previews. Do not alter IDs or saved records.
@@ -128,13 +120,16 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
       categories: sheet.categories, custom_fields: sheet.field_definitions, current_previews: body.previews, current_statement: body.statement };
     const result: AssistantResult = { text: "", previews: null, statement: null, evidence: [] };
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(210000)]);
-    let callCount = 0;
+    let callCount = 0, malformedRetries = 0;
     for (let round = 0; round < 8; round++) {
       const response = await dependencies.respond({ model: (env.GEMINI_MODEL ?? process.env.GEMINI_MODEL)?.trim() || "gemini-3.5-flash",
-        systemInstruction: { parts: [{ text: instructions(metadata) }] }, contents,
+        systemInstruction: { parts: [{ text: instructions(metadata) + (malformedRetries ? "\nYour previous generation did not produce a valid function call. Retry using only the declared function names and named arguments matching their JSON schemas. Do not repeat argument names or emit raw function-call code." : "") }] }, contents,
         tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: "VALIDATED" } }, generationConfig: { maxOutputTokens: 32768 } }, key, signal);
       const candidate = response.candidates?.[0];
-      if (["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"].includes(candidate?.finishReason ?? "")) throw new AssistantError("Gemini could not prepare a valid tool request. Try a smaller batch or a clearer message. No entries were saved.", 422);
+      if (["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"].includes(candidate?.finishReason ?? "")) {
+        if (malformedRetries++ === 0) continue;
+        throw new AssistantError("Gemini could not prepare a valid tool request. Try a smaller batch or a clearer message. No entries were saved.", 422);
+      }
       if (response.promptFeedback?.blockReason || candidate?.finishReason && !["STOP", "MAX_TOKENS"].includes(candidate.finishReason)) throw new AssistantError("Gemini could not safely interpret this request. Try a clearer message or a different document. No entries were saved.", 422);
       if (candidate?.finishReason !== "STOP" || !Array.isArray(candidate.content?.parts)) throw new AssistantError("The AI response was cut short. Try a smaller statement or a narrower question. No entries were saved.", 502);
       // Keep the model's original parts, including opaque thought signatures, for tool continuation.

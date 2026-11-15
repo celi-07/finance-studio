@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { emptyWorkspace, periodReport, validateFormEntry } from "../lib/ledger.ts";
 import { loadCloud } from "../lib/ledger-cloud.ts";
 import { financialReport, findTransactions, makePreviews, statementChecks } from "../lib/ai-finance.ts";
-import { handleAssistant } from "../lib/ai-server.ts";
+import { handleAssistant, respondWithGemini } from "../lib/ai-server.ts";
 
 const account = (id, currency = "IDR", extra = {}) => ({ id, name: id, currency, kind: "bank", opening_minor: 0, opening_date: "2020-01-01", archived: false, ...extra });
 const entry = (id, kind, amount_minor, extra = {}) => ({ id, kind, amount_minor, account_id: "bank", occurred_on: "2025-02-03", description: id, notes: "", category_id: null, destination_account_id: null, custom_values: {}, reimbursable_minor: 0, counterparty: "", due_on: null, ...extra });
@@ -180,20 +180,10 @@ test("truncated model output and excessive tool loops fail without partial impor
   assert.equal(looping.status, 422);
 });
 
-test("default authentication rejects invalid users and unverified sessions before provider access", async t => {
-  let providerCalls = 0; let verified = false; let validUser = false;
-  t.mock.method(globalThis, "fetch", async url => {
-    const path = String(url);
-    if (path.includes("generativelanguage.googleapis.com")) { providerCalls++; throw Error("Should not call provider"); }
-    if (path.endsWith("/auth/v1/user")) return Response.json(validUser ? { id: "owner", aud: "authenticated" } : { msg: "Invalid token" }, { status: validUser ? 200 : 401 });
-    if (path.includes("ledger_email_verified")) return Response.json(verified);
-    if (path.includes("ledger_ai_reserve")) return Response.json(false);
-    throw Error(`Unexpected endpoint ${path}`);
-  });
-  assert.equal((await handleAssistant(request(), env)).status, 401);
-  validUser = true; assert.equal((await handleAssistant(request(), env)).status, 403);
-  verified = true; assert.equal((await handleAssistant(request(), env)).status, 429);
-  assert.equal(providerCalls, 0);
+test("the internal engine has no default private-record reader", async t => {
+  let calls = 0; t.mock.method(globalThis, "fetch", async () => { calls++; throw Error("No network access should occur"); });
+  assert.equal((await handleAssistant(request(), env)).status, 403);
+  assert.equal(calls, 0);
 });
 
 test("exhausted Gemini quota gives an actionable error", async t => {
@@ -205,7 +195,7 @@ test("exhausted Gemini quota gives an actionable error", async t => {
     if (path.includes("/rest/v1/")) return Response.json([]);
     throw Error(`Unexpected endpoint ${path}`);
   });
-  const response = await handleAssistant(request(), env);
+  const response = await handleAssistant(request(), env, deps(setup(), respondWithGemini));
   assert.equal(response.status, 429);
   assert.match((await response.json()).error, /quota.*billing/);
 });
@@ -233,7 +223,7 @@ test("Gemini native requests use header authentication, inline PDFs and JSON-sch
     if (path.includes("/rest/v1/")) return Response.json([]);
     throw Error(`Unexpected endpoint ${path}`);
   });
-  const response = await handleAssistant(request(body({ messages: [{ role: "user", text: "Read this fictional PDF", attachments: [file] }] })), env);
+  const response = await handleAssistant(request(body({ messages: [{ role: "user", text: "Read this fictional PDF", attachments: [file] }] })), env, deps(setup(), respondWithGemini));
   assert.equal(response.status, 200); assert.equal(calls, 1);
 });
 
@@ -267,4 +257,18 @@ test("consecutive assistant status messages become one Gemini model turn", async
     assert.equal(payload.contents[1].parts.length, 2); return textResponse("Ready");
   }));
   assert.equal(response.status, 200);
+});
+
+test("malformed Gemini tool output gets one bounded retry and is never executed", async () => {
+  let calls = 0;
+  const first = await handleAssistant(request(), env, deps(setup(), async payload => {
+    calls++;
+    if (calls === 1) return { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL", content: { role: "model", parts: [] } }] };
+    assert.ok(payload.systemInstruction.parts[0].text.includes("Do not repeat argument names"));
+    return textResponse("A valid fictional reply");
+  }));
+  assert.equal(first.status, 200); assert.equal(calls, 2);
+  calls = 0;
+  const repeated = await handleAssistant(request(), env, deps(setup(), async () => { calls++; return { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL" }] }; }));
+  assert.equal(repeated.status, 422); assert.equal(calls, 2);
 });
