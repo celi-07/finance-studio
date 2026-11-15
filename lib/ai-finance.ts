@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  accountCurrency, accountName, categoryName, money, parseMoney, parseDate, periodReport,
+  accountCurrency, accountName, categoryName, inPeriod, money, parseMoney, parseDate, periodReport,
   today, validateFormEntry, workspaceForBook, type Workspace, type Currency,
 } from "./ledger.ts";
 import { MAX_PREVIEWS, type DraftPreview, type ProposedEntry, type Statement } from "./ai-contract.ts";
@@ -39,7 +39,13 @@ export function financialReport(data: Workspace, sheet: string, input: z.infer<t
         const row = periodReport(workspace, year, currency);
         return { year, income: safeMoney(row.income, currency), gross_expenses: safeMoney(row.gross, currency), personal_spending: safeMoney(row.spending, currency), net_cash_flow: safeMoney(row.netCashFlow, currency) };
       }) : [];
-      return { currency, transaction_count: report.entries.length, metrics, by_year: byYear,
+      return { currency,
+        transaction_count: workspace.transactions.filter(e => accountCurrency(workspace.accounts.find(a => a.id === e.account_id)) === currency && inPeriod(e.occurred_on, period)).length,
+        report_entry_count: report.entries.length, reimbursement_payment_count: report.receipts.length, balance_adjustment_count: report.adjustments.length,
+        count_note: "Saved transaction count includes deposits linked to reimbursement payments; report entry count excludes those deposits to avoid counting income twice. Reimbursement payments and balance adjustments are separate records.",
+        metrics, by_year: byYear,
+        largest_expenses: report.entries.filter(e => e.kind === "expense").toSorted((a, b) => b.amount_minor - a.amount_minor || a.id.localeCompare(b.id)).slice(0, 10)
+          .map(e => ({ date: e.occurred_on, description: e.description, gross_expense: safeMoney(e.amount_minor, currency), personal_spending: safeMoney(e.amount_minor - e.reimbursable_minor, currency), account: accountName(workspace, e.account_id), category: categoryName(workspace, e.category_id) })),
         categories: report.categories.map(row => ({ name: row.name, personal_spending: safeMoney(row.amount, currency) })),
         accounts: report.accounts.map(row => ({ id: row.account.id, name: row.account.name, archived: row.account.archived, opening_date: row.account.opening_date, balance: safeMoney(row.value, currency), valuation_date: row.valuation?.valued_on ?? null })),
         outstanding_claims: report.claims.map(row => ({ description: row.entry.description, person: row.counterparty, remaining: safeMoney(row.remaining, currency) })),

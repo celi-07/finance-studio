@@ -43,6 +43,10 @@ test("reports count transfers, linked reimbursements and balance adjustments lik
   assert.equal(report.metrics.collected.minor, "3000");
   assert.equal(report.metrics.receivable.minor, "4000");
   assert.equal(report.metrics.cash.minor, "90000");
+  assert.equal(report.transaction_count, 4);
+  assert.equal(report.report_entry_count, 3);
+  assert.equal(report.reimbursement_payment_count, 1);
+  assert.equal(report.largest_expenses[0].gross_expense.minor, "12000");
   for (const [key, value] of Object.entries(report.metrics)) assert.equal(value.minor, String(periodReport(data, "all", "IDR")[key]));
 });
 
