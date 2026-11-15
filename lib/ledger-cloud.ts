@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { emptyWorkspace, type Collection, type FinanceBook, type Workspace } from "./ledger";
-import type { CloudConfig } from "./ledger-cloud-config";
+import { emptyWorkspace, type Collection, type FinanceBook, type Workspace } from "./ledger.ts";
+import type { CloudConfig } from "./ledger-cloud-config.ts";
 
 let connection: { url: string; key: string; client: SupabaseClient } | undefined;
 export function getSupabase({ url, key }: CloudConfig) {

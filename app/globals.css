@@ -589,6 +589,51 @@ strong { font-weight: 660; }
 .reporting-period > .picker-trigger { width: auto; }
 .planning-grid.goals-only { grid-template-columns: minmax(0, 1fr); }
 .assistant-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+.ai-layout { grid-template-columns: minmax(0, 1.2fr) minmax(300px, 1fr); }
+.ai-layout .assistant-thread { min-height: 32dvh; max-height: 62dvh; }
+.ai-layout .assistant-chat > header .icon-button { margin-left: auto; flex-shrink: 0; }
+.assistant-input-area { min-width: 0; padding: 12px 18px 16px; border-top: 1px solid var(--line); }
+.assistant-privacy { font-size: .75rem; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
+.ai-layout .assistant-composer { padding: 0; border: 0; display: flex; gap: 8px; align-items: flex-end; }
+.assistant-composer textarea { flex: 1; min-width: 0; resize: vertical; max-height: 220px; }
+.ai-layout .assistant-bubble { white-space: normal; overflow-wrap: anywhere; }
+.assistant-bubble.you .assistant-markdown { white-space: pre-wrap; }
+.assistant-markdown p + p, .assistant-markdown ul, .assistant-markdown ol { margin-top: 10px; }
+.assistant-markdown ul, .assistant-markdown ol { padding-left: 22px; }
+.assistant-markdown h1, .assistant-markdown h2, .assistant-markdown h3 { font-size: 1rem; margin-top: 14px; }
+.assistant-markdown table { display: block; overflow-x: auto; font-size: .82rem; margin: 12px 0; border-collapse: collapse; }
+.assistant-markdown th, .assistant-markdown td { padding: 6px 9px; border: 1px solid var(--line); text-align: left; }
+.assistant-markdown pre { overflow: auto; white-space: pre-wrap; }
+.assistant-starters { display: grid; gap: 5px; margin-top: 12px; }
+.assistant-starters button { text-align: left; justify-content: start; white-space: normal; }
+.assistant-file, .assistant-files > span { display: flex; gap: 6px; align-items: center; font-size: .8rem; margin-top: 8px; }
+.assistant-files { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.assistant-files > span { border: 1px solid var(--line); padding: 5px 8px; border-radius: 8px; overflow-wrap: anywhere; }
+.assistant-files button { border: 0; background: transparent; color: inherit; display: flex; padding: 3px; }
+.assistant-evidence { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; font-size: .78rem; }
+.assistant-evidence summary, .assistant-draft summary { cursor: pointer; padding: 7px 0; }
+.assistant-evidence > details { max-height: 500px; overflow: auto; }
+.assistant-evidence-values { margin: 6px 0; }
+.assistant-evidence-values > div { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.assistant-evidence-values dt { text-transform: capitalize; font-weight: 600; }
+.assistant-evidence-values dd { margin: 3px 0 0 8px; }
+.assistant-evidence-list > * + * { margin-top: 14px; }
+.assistant-evidence-table { max-width: 100%; overflow: auto; }
+.assistant-evidence-table table { border-collapse: collapse; font-size: .76rem; }
+.assistant-evidence-table th, .assistant-evidence-table td { padding: 7px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.assistant-evidence-table th { text-transform: capitalize; }
+.assistant-reconciliation { padding: 16px 20px; border-bottom: 1px solid var(--line); font-size: .83rem; }
+.assistant-reconciliation p { margin-top: 10px; }
+.assistant-reconciliation label { display: flex; align-items: start; gap: 8px; margin-top: 14px; }
+.assistant-batch-actions { display: flex; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.assistant-draft { padding: 15px 20px; border-bottom: 1px solid var(--line); }
+.assistant-draft .form-message { margin: 10px 0; }
+.assistant-select-row { display: flex; align-items: start; gap: 9px; }
+.assistant-select-row input { margin-top: 5px; }
+.assistant-select-row small { display: block; color: var(--muted); font-size: .8rem; margin-top: 4px; }
+.assistant-source { font-size: .78rem; border-left: 2px solid var(--line); padding-left: 10px; margin: 12px 0; color: var(--muted); }
+.assistant-source p { white-space: pre-wrap; margin-top: 4px; }
+.assistant-draft fieldset { padding: 0; border: 0; min-width: 0; }
 .panel.assistant-chat { --panel-tint: var(--wash-orchid); display: grid; grid-template-rows: auto 1fr auto; min-height: 455px; }
 .panel.assistant-preview { --panel-tint: var(--wash-peach); }
 .assistant-chat > header, .assistant-preview > header { display: flex; align-items: center; gap: 11px; padding: 17px 19px; border-bottom: 1px solid var(--line); }

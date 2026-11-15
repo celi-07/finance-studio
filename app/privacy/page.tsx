@@ -14,7 +14,7 @@ export default function PrivacyPage() {
     </header>
     <main className="panel privacy-policy">
       <h1>Privacy Policy</h1>
-      <p className="policy-date">Last updated <time dateTime="2026-11-10">November 10, 2026</time></p>
+      <p className="policy-date">Last updated <time dateTime="2026-11-15">November 15, 2026</time></p>
       <p>Finance Studio is a personal finance tracker. This policy explains what happens to your account information and the financial records you choose to enter.</p>
 
       <section aria-labelledby="google-sign-in">
@@ -27,6 +27,12 @@ export default function PrivacyPage() {
         <h2 id="financial-records">Financial records</h2>
         <p>Finance Studio stores the information you enter, such as account names and balances, transactions, reimbursement details, investments, goals and notes. The app uses this information to maintain your ledger and generate charts and reports. Finance Studio does not connect to banks or ask for bank login credentials.</p>
         <p>In the signed-in app, Supabase stores your records and enforces account-level access controls. In the demo, changes stay in your browser’s local storage.</p>
+      </section>
+
+      <section aria-labelledby="ai-assistant">
+        <h2 id="ai-assistant">AI assistant and statement uploads</h2>
+        <p>When you send a message to the assistant, Finance Studio sends that message, the conversation in the current tab, any files you attach, and relevant records from your signed-in workspace to OpenAI to answer your question or prepare an editable draft. This can include transaction details, account names and balances, reimbursement information and statement contents. Use this feature only with files and records you want processed by the AI service.</p>
+        <p>Chat and uploaded files are held in your browser tab rather than saved as Finance Studio records. Start a new chat or close the tab to clear them. Requests use OpenAI’s API with response storage disabled; OpenAI may retain API data for abuse monitoring under its <a href="https://platform.openai.com/docs/guides/your-data">data controls and retention policy</a>. Your financial records are saved only after you review a preview and submit it. AI answers and extractions can contain errors; check the source document, calculated reports, dates, amounts and account mapping before relying on them.</p>
       </section>
 
       <section aria-labelledby="service-providers">

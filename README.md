@@ -68,6 +68,19 @@ The grid opens with one blank row. Use **Add row** for one more, or the arrow be
 
 For expenses, the form offers **None**, **Partial**, and **Full** reimbursement. In the spreadsheet, use **Reimbursement (optional)** for the amount owed back and **Amount** for the entire expense. Leave **Due date** blank when there is no deadline.
 
-Use **Assistant** to draft one income or expense in plain language. Try **Beli nasi goreng Rp47.900 tanggal 3 Okt 2026**, then send **pakai BCA** or edit the preview directly. The browser uses local rules to prepare the draft. Select **Submit transaction** to save it.
+## AI assistant
+
+The signed-in Assistant uses the OpenAI Responses API for conversational questions, natural-language entries, and PDF/image statement interpretation. It can read the authenticated user's complete saved history through owner-scoped tools, calculate reports using the same ledger functions as the dashboard, search transactions, and prepare editable batches. It has no database write tool: entries are saved through the existing authenticated transaction API only when the user clicks Submit. Demo mode does not send records to AI.
+
+To activate it:
+
+1. Apply [011 · AI usage limits](supabase/migrations/011_ai_assistant_usage.sql) after the existing migrations.
+2. Set **OPENAI_API_KEY** as a server-only Production environment variable in Vercel. Optionally set **OPENAI_MODEL** (default `gpt-5.6-terra`, which must support Responses tool calls and vision/PDF input). Never expose the key through `NEXT_PUBLIC_*`.
+3. Deploy the Vercel branch with `npx next build` as its build command. The API route permits up to 240 seconds; confirm the project's Vercel plan supports this duration. For Worker hosting, the worker dispatches `/api/assistant` to the same handler using its secret bindings.
+4. Sign in, complete email verification, and test a question plus a small fictional statement before using real bank data.
+
+Attachments support PDF (including scanned pages), PNG, JPEG, CSV and text, up to 5 files and 3 MB total per chat. Batches contain up to 150 entries; larger statements require separate review batches. The assistant flags missing fields, exact possible duplicates, and statement reconciliation differences. It cannot guarantee error-free extraction: review every row. Financial totals come from server calculations and keep currencies separate; reports include the earliest saved date and every recorded year. Chats and files remain in tab memory, and provider requests set `store: false`. See the website privacy policy for provider retention details.
+
+Usage is limited atomically in Supabase to 100 requests per verified user per UTC day, at least 5 seconds apart. Requests have bounded input, output, and tool iterations. Configure a project budget in OpenAI as a separate overall spending control. No raw SQL, service-role key, arbitrary network tool, or model-driven save is exposed to the model.
 
 Use **Month**, **Year**, or **All time** to set the reporting period on Overview, Transactions, Reimbursements, and Investments. The PDF uses the same period. The activity calendar appears in Month view. Savings goals show cash and allocations as of today.

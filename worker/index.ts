@@ -2,6 +2,7 @@ import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { configuredCloud } from "../lib/ledger-cloud-config";
+import { handleAssistant } from "../lib/ai-server";
 
 function documentPolicy(env: Cloudflare.Env) {
   const random = crypto.getRandomValues(new Uint8Array(16));
@@ -32,11 +33,12 @@ function documentPolicy(env: Cloudflare.Env) {
 
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
-    // All writes go directly to Supabase. This app has no server actions or image optimizer.
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/api/assistant") return handleAssistant(request, env);
+    // Ledger writes go directly to Supabase after the user reviews a preview.
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
     }
-    const pathname = new URL(request.url).pathname;
     if (/^\/(?:_next|_vinext)\/image\/?$/.test(pathname)) return new Response(null, { status: 404 });
 
     let binding = ctx.props?.CONNECTORS;

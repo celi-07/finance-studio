@@ -23,7 +23,7 @@ const routes = {
   transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: ReceiptText },
   reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
   investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartNoAxesCombined },
-  assistant: { label: "Assistant", caption: "Draft a transaction in your own words", icon: Sparkles },
+  assistant: { label: "Assistant", caption: "Chat about your finances and review statement imports", icon: Sparkles },
   settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
 type Route = keyof typeof routes;
@@ -428,9 +428,9 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
             onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onGuide={() => setPanel({ type: "guide" })}/>}
         </div>
         {!loading && <div hidden={route !== "assistant"}>
-          <EntryAssistant key={currentSheet.id} workspace={bookData} currency={currency} onSave={async entry => {
-            await save("transactions", [entry]); setMonth(entry.occurred_on.slice(0, 7));
-            setPreferredCurrency(currencyForAccount(bookData, entry.account_id));
+          <EntryAssistant key={`${owner.current ?? "demo"}:${currentSheet.id}`} workspace={bookData} currency={currency} cloud={cloud} sheetId={currentSheet.id} onSave={async entries => {
+            await save("transactions", entries); setMonth(entries[0].occurred_on.slice(0, 7));
+            setPreferredCurrency(currencyForAccount(bookData, entries[0].account_id));
           }}/>
         </div>}
         <footer className="footer"><span>Finance Studio @whiteeorangee</span></footer>
