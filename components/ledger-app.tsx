@@ -18,6 +18,7 @@ import { FinanceWelcome, ProviderSignIn, VerifyEmail } from "./finance-welcome";
 import { ActivityCalendar, GoalDialog, SavingsGoals } from "./ledger-planning";
 import { EntryAssistant } from "./ledger-assistant";
 import { prepareWorkspacePreview, type WorkspacePreview } from "@/lib/ai-workspace";
+import type { PersonalAIConfig } from "@/lib/ai-provider-config";
 
 const routes = {
   overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
@@ -143,6 +144,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [assistantIdentity, setAssistantIdentity] = useState("demo");
+  const [assistantOwner, setAssistantOwner] = useState<string | null>(null);
+  const [personalAI, setPersonalAI] = useState<{ identity: string; config: PersonalAIConfig } | null>(null);
   const [signedInEmail, setSignedInEmail] = useState("");
   const owner = useRef<string | null>(null);
   const [verification, setVerification] = useState<{ id: string; email: string } | null>(null);
@@ -198,6 +201,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         if (nextKey === sessionKey) return;
         sessionKey = nextKey;
         setAssistantIdentity(nextKey);
+        setAssistantOwner(nextOwner);
+        setPersonalAI(null);
         setSignedInEmail(nextOwner ? user?.email ?? "" : "");
         owner.current = nextOwner;
         setRecovery(recovering);
@@ -448,6 +453,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         </div>
         {!loading && <div hidden={route !== "assistant"}>
           <EntryAssistant key={assistantIdentity + ":" + currentSheet.id} workspace={bookData} reportWorkspace={data} currency={currency} cloud={cloud} sheetId={currentSheet.id}
+            ownerId={assistantOwner} personalAI={personalAI?.identity === assistantIdentity ? personalAI.config : null} onPersonalAIChange={config => setPersonalAI(config ? { identity: assistantIdentity, config } : null)}
             onSave={async entries => { await save("transactions", entries); }} onSaveChange={saveAssistantChange}/>
         </div>}
         <footer className="footer"><span>Finance Studio @whiteeorangee</span></footer>
