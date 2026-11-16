@@ -52,7 +52,13 @@ const defaultDependencies: AssistantDependencies = {
 export const respondWithGemini = defaultDependencies.respond;
 function tool(name: string, description: string, schema: z.ZodType) {
   const parameters = z.toJSONSchema(schema); delete parameters.$schema;
-  return { name, description, parametersJsonSchema: parameters };
+  // Gemini's constrained decoder follows enum/anyOf; literal const/oneOf can be ignored.
+  const compatible = JSON.parse(JSON.stringify(parameters, (key, value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const { const: literal, oneOf, ...rest } = value;
+    return { ...rest, ...(literal !== undefined ? { enum: [literal] } : {}), ...(oneOf ? { anyOf: oneOf } : {}) };
+  }));
+  return { name, description, parametersJsonSchema: compatible };
 }
 const tools = [
   tool("get_financial_report", "Complete, authoritative financial totals calculated by the application, per currency, for a month, year, or all saved history. Use this before every financial summary. All time includes every year, not a recent sample. Includes balances, adjustments, reimbursements, categories, and yearly totals. Cite its evidence ID.", reportQuerySchema),
@@ -140,6 +146,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
     ];
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(210000)]);
     const initialContentLength = contents.length;
+    const failedActions = new Map<string, string>();
     let activeKey = key;
     let activeModel = model;
     let canFailOver = Boolean(fallbackKey && fallbackKey !== key || fallbackModel !== model);
@@ -160,6 +167,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
         // The caller's reservation, signing key and overall deadline stay unchanged.
         contents.splice(initialContentLength);
         result.previews = null; result.statement = null; result.evidence = []; result.downloads = []; result.changes = [];
+        failedActions.clear();
         callCount = 0; malformedRetries = 0; round = -1;
         continue;
       }
@@ -174,6 +182,8 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
       contents.push({ ...candidate.content, role: "model" });
       const calls = candidate.content.parts.flatMap(part => part.functionCall ? [part.functionCall] : []);
       if (!calls.length) {
+        const missingPreview = [...failedActions].find(([name]) => name === "prepare_workspace_preview" ? !result.changes?.length : name === "prepare_transaction_preview" ? result.previews === null : !result.downloads?.length);
+        if (missingPreview) throw new AssistantError(`The assistant could not prepare the requested change or file: ${missingPreview[1]} No changes were saved.`, 422);
         result.text = candidate.content.parts.filter(part => !part.thought).map(part => part.text ?? "").join("\n").trim();
         if (!result.text) throw new AssistantError("The AI returned an empty reply. Try again.", 502);
         return json(result);
@@ -214,7 +224,12 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
             const title = call.name === "get_financial_report" ? `Financial report · ${args.scope === "all" ? "All sheets" : "Current sheet"} · ${args.period}` : call.name === "find_transactions" ? "Saved transaction search" : `Saved ${args.collection}`;
             result.evidence.push({ id, title, data }); output = { evidence_id: id, ...data };
           }
-        } catch (error) { output = { error: error instanceof z.ZodError ? "Invalid tool arguments. Check the schema and retry." : error instanceof Error ? error.message : "This tool could not run." }; }
+          failedActions.delete(call.name);
+        } catch (error) {
+          const message = error instanceof z.ZodError ? `Invalid tool arguments: ${z.prettifyError(error).slice(0, 1800)}. Check the declared enum values and required fields, then retry.` : error instanceof Error ? error.message : "This tool could not run.";
+          output = { error: message };
+          if (["prepare_workspace_preview", "prepare_transaction_preview", "request_report_pdf"].includes(call.name)) failedActions.set(call.name, message);
+        }
         results.push({ functionResponse: { ...(call.id ? { id: call.id } : {}), name: call.name, response: output } });
       }
       contents.push({ role: "user", parts: results });
