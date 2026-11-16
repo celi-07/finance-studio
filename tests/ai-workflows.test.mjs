@@ -65,6 +65,13 @@ test("AI requests a real report download with validated screen, currency, period
   assert.deepEqual((await response.json()).downloads, [{ kind: "transactions", currency: "IDR", period: "2026-10", scope: "sheet", sheet_id: "" }]);
 });
 
+test("multi-part verification can finish nine read steps within the existing fourteen-call budget", async () => {
+  let round = 0;
+  const response = await handleAssistant(request(), env, deps(workspace(), async () => round++ < 9 ? call("get_financial_report", { scope: "sheet", period: "2026-10" }) : reply("Verified saved records [R9]")));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).evidence.length, 9);
+});
+
 test("model quota failover keeps the configured backup model for subsequent tool rounds", async t => {
   const attempts = [];
   t.mock.method(globalThis, "fetch", async (url, options) => {

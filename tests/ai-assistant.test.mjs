@@ -31,6 +31,32 @@ test("all-history reports include old records and separate currencies and sheets
   assert.equal(personal.currencies.find(c => c.currency === "IDR").metrics.income.minor, "100000");
 });
 
+test("AI can find imported entries by custom reference and receives explicit income accounting guidance", () => {
+  const data = setup();
+  data.transactions = [entry("pdf-import", "income", 500000000, { custom_values: { reference: "PDF-E2E" } }), entry("other", "expense", 10000000, { reimbursable_minor: 10000000, counterparty: "Sam" }), entry("deposit", "income", 5000000)];
+  data.reimbursement_receipts = [{ id: "receipt", expense_id: "other", income_entry_id: "deposit", account_id: "bank", amount_minor: 5000000, received_on: "2025-02-03", notes: "" }];
+  data.balance_updates = [{ id: "ending", account_id: "bank", recorded_on: "2025-02-04", frequency: "monthly", balance_minor: 499500000 }];
+  const found = findTransactions(data, "", { scope: "sheet", from: null, to: null, search: "pdf-e2e", account_id: null, currency: null, kind: null, offset: 0 });
+  assert.equal(found.total_matches, 1); assert.equal(found.rows[0].id, "pdf-import");
+  const report = financialReport(data, "", { scope: "sheet", period: "all" });
+  assert.match(report.note, /Income EXCLUDES deposits linked to reimbursements, and INCLUDES positive balance adjustments/);
+  const idr = report.currencies.find(c => c.currency === "IDR");
+  assert.equal(idr.income_components.recorded_income_excluding_linked_deposits.minor, "500000000");
+  assert.equal(idr.income_components.positive_cash_balance_adjustments.minor, "4500000");
+  assert.equal(idr.income_components.linked_reimbursement_deposits_excluded.minor, "5000000");
+  assert.equal(idr.metrics.income.minor, "504500000");
+});
+
+test("read tools can verify another owned sheet without exposing unrelated or unknown sheets", () => {
+  const data = setup(); data.finance_books = [{ id: "business", name: "AI Test Business" }];
+  data.transactions = [entry("personal-income", "income", 100000)];
+  const report = financialReport(data, "", { scope: "sheet", sheet_id: "business", period: "all" });
+  assert.equal(report.scope, "AI Test Business"); assert.deepEqual(report.currencies, []);
+  const found = findTransactions(data, "", { scope: "sheet", sheet_id: "business", from: null, to: null, search: "", account_id: null, currency: null, kind: null, offset: 0 });
+  assert.equal(found.total_matches, 0);
+  assert.throws(() => financialReport(data, "", { scope: "sheet", sheet_id: "unknown-owner-sheet", period: "all" }), /saved sheets/);
+});
+
 test("reports count transfers, linked reimbursements and balance adjustments like the ledger", () => {
   const data = setup();
   data.transactions = [entry("salary", "income", 100000), entry("move", "transfer", 20000, { destination_account_id: "wallet" }), entry("meal", "expense", 12000, { reimbursable_minor: 7000, counterparty: "Sam" }), entry("deposit", "income", 3000, { occurred_on: "2025-02-04" })];

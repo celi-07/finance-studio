@@ -63,7 +63,7 @@ function tool(name: string, description: string, schema: z.ZodType) {
 }
 const tools = [
   tool("get_financial_report", "Complete, authoritative financial totals calculated by the application, per currency, for a month, year, or all saved history. Use this before every financial summary. All time includes every year, not a recent sample. Includes balances, adjustments, reimbursements, categories, and yearly totals. Cite its evidence ID.", reportQuerySchema),
-  tool("find_transactions", "Search real saved transactions by inclusive date range, description, account, type or currency. Results are paginated: read next_offset until null when claiming completeness. Use reports for totals, not arithmetic over a page.", searchQuerySchema),
+  tool("find_transactions", "Search real saved transactions by inclusive date range, description, notes, custom-field value, account, type or currency. Results are paginated: read next_offset until null when claiming completeness. Use reports for totals, not arithmetic over a page.", searchQuerySchema),
   tool("get_record_details", "Read saved reimbursement payments, savings goals, people, investment valuations or balance updates. Paginated and scoped to the authenticated owner.", detailsQuerySchema),
   tool("prepare_transaction_preview", "Prepare a REPLACEMENT set of editable draft entries for the CURRENT sheet. This does not write to the database. Include all unsaved rows when revising a batch. Use existing account/category IDs or null when uncertain. Source quotes and page numbers help review. Never invent dates, amounts, accounts, or missing statement rows. Include stated statement totals for reconciliation; null when unavailable. At most 150 rows per review batch; explicitly tell the user if the document needs multiple batches.", previewToolSchema),
 ];
@@ -159,7 +159,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
     let activeModel = model;
     let canFailOver = Boolean(fallbackKey && fallbackKey !== key || fallbackModel !== model);
     let callCount = 0, malformedRetries = 0;
-    for (let round = 0; round < 8; round++) {
+    for (let round = 0; round < 15; round++) {
       let response: GeminiResponse;
       try {
         signal.throwIfAborted();
