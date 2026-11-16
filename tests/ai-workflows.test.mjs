@@ -170,10 +170,12 @@ test("partial combined reimbursement drafts validate every claim and allow a mat
   const preview = change(data, action); assert.equal(preview.rows.length, 2);
   assert.match(preview.detail, /Sam: Rp\s50\.000 for Dinner/); assert.match(preview.detail, /Alex: Rp\s30\.000 for Dinner/);
   assert.equal(preview.rows[0].payment_group_id, preview.rows[1].payment_group_id);
+  assert.equal(preview.rows[0].id, preview.rows[0].payment_group_id, "the combined payment needs its own root row for the database foreign key");
   assert.throws(() => change(data, { ...action, account_id: "usd" }), /same currency/);
   assert.throws(() => change(data, { ...action, allocations: [{ expense_id: "dinner", claim_id: "sam", amount: "100001" }] }), /exceeds/);
   data.transactions.push({ id: "deposit", kind: "income", account_id: "bank", occurred_on: "2026-10-02", amount_minor: 8000000 });
-  assert.equal(change(data, { ...action, income_entry_id: "deposit" }).rows[0].income_entry_id, "deposit");
+  assert.throws(() => change(data, { ...action, income_entry_id: "deposit" }), /one claim at a time/);
+  assert.equal(change(data, { ...action, allocations: [{ expense_id: "dinner", claim_id: "sam", amount: "80000" }], income_entry_id: "deposit" }).rows[0].income_entry_id, "deposit");
   data.reimbursement_receipts = preview.rows;
   const undo = change(data, { type: "undo_reimbursement_payment", receipt_id: preview.rows[0].id });
   assert.equal(undo.rows.length, 2); assert.equal(undo.remove.paymentGroup, preview.rows[0].payment_group_id);

@@ -99,7 +99,8 @@ export function prepareWorkspacePreview(workspace: Workspace, sheetId: string, i
   if (change.received_on > today()) throw Error("A reimbursement payment cannot be in the future.");
   const openClaims = claims(sheet), used = new Set<string>();
   const group = change.allocations.length > 1 ? crypto.randomUUID() : null;
-  const rows = change.allocations.map(allocation => {
+  if (group && change.income_entry_id) throw Error("Link an existing income to one claim at a time. Combined payments must be recorded without an income link.");
+  const rows = change.allocations.map((allocation, index) => {
     const claim = openClaims.find(c => c.entry.id === allocation.expense_id && c.id === allocation.claim_id);
     if (!claim || used.has(claim.key)) throw Error("Choose distinct saved reimbursement claims in this sheet.");
     used.add(claim.key);
@@ -107,7 +108,7 @@ export function prepareWorkspacePreview(workspace: Workspace, sheetId: string, i
     if (change.received_on < claim.entry.occurred_on) throw Error("A receipt cannot precede its expense.");
     const amount_minor = minor(allocation.amount, currency, true);
     if (amount_minor > claim.remaining) throw Error("This receipt exceeds the outstanding claim.");
-    return { id: crypto.randomUUID(), expense_id: claim.entry.id, claim_id: claim.id, payment_group_id: group, income_entry_id: change.income_entry_id, account_id: deposit.id, received_on: change.received_on, amount_minor, notes: change.notes };
+    return { id: index === 0 && group ? group : crypto.randomUUID(), expense_id: claim.entry.id, claim_id: claim.id, payment_group_id: group, income_entry_id: change.income_entry_id, account_id: deposit.id, received_on: change.received_on, amount_minor, notes: change.notes };
   });
   const total = rows.reduce((sum, row) => sum + row.amount_minor, 0);
   if (!Number.isSafeInteger(total)) throw Error("The payment total is outside the supported precision.");
