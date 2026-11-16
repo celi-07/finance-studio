@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { handleDemoAssistant } from "../lib/ai-demo-server.ts";
+import { respondWithGemini } from "../lib/ai-server.ts";
 import { createAIDemo, demoActions, SAMPLE_PDF_NAME } from "../lib/ai-demo.ts";
 import sample from "../lib/ai-demo-statement.json" with { type: "json" };
 
@@ -119,4 +120,32 @@ test("recorded fallback is a separate fictional artifact with exact reconciled r
   const { statementChecks } = await import("../lib/ai-finance.ts");
   assert.ok(statementChecks(example.previews, example.statement).every(c => c.ok));
   assert.ok(readFileSync(new URL("../public/fictional-statement.pdf", import.meta.url)).subarray(0, 10).toString().includes("%PDF"));
+});
+
+test("quota failover keeps one demo reservation and primary-key state signatures across turns", async t => {
+  const fallbackEnv = { ...env, GEMINI_FALLBACK_API_KEY: "server-only-fallback-secret" };
+  let reservations = 0; const hashes = [], keys = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    const key = options.headers["x-goog-api-key"]; keys.push(key);
+    if (key === env.GEMINI_API_KEY) return Response.json({ error: { status: "RESOURCE_EXHAUSTED" } }, { status: 429 });
+    return Response.json(reply("Fictional fallback reply"));
+  });
+  const deps = defaults({ reserve: async hash => { reservations++; hashes.push(hash); return true; }, respond: respondWithGemini });
+  const first = await handleDemoAssistant(request({ action: "dinner" }), fallbackEnv, deps);
+  assert.equal(first.status, 200); const result = await first.json();
+  const second = await handleDemoAssistant(request({ action: "correction", state: result.state }), fallbackEnv, deps);
+  assert.equal(second.status, 200); assert.equal(reservations, 2);
+  assert.equal(hashes[0], hashes[1]);
+  assert.deepEqual(keys, [env.GEMINI_API_KEY, fallbackEnv.GEMINI_FALLBACK_API_KEY, env.GEMINI_API_KEY, fallbackEnv.GEMINI_FALLBACK_API_KEY]);
+  assert.ok(!JSON.stringify(result).includes(fallbackEnv.GEMINI_FALLBACK_API_KEY));
+  let primaryHash;
+  const primary = await handleDemoAssistant(request({ action: "correction", state: result.state }), env, defaults({ reserve: async hash => { primaryHash = hash; return true; } }));
+  assert.equal(primary.status, 200); assert.equal(primaryHash, hashes[0]);
+});
+
+test("demo limits block both primary and fallback generation", async t => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw Error("No generation expected"); });
+  const response = await handleDemoAssistant(request({ action: "summary" }), { ...env, GEMINI_FALLBACK_API_KEY: "backup-key" }, defaults({ reserve: async () => false, respond: respondWithGemini }));
+  assert.equal(response.status, 429); assert.equal(calls, 0);
 });
