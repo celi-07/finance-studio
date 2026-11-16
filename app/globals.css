@@ -886,4 +886,9 @@ strong { font-weight: 660; }
 .ai-demo-ledger > p { margin: 8px 0 14px; }
 .ai-demo-ledger details { margin-top: 18px; }
 .ai-demo-ledger summary { cursor: pointer; padding: 8px 0; }
+.assistant-change-review { display: grid; gap: 12px; margin: 16px 0; }
+.assistant-change { padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.assistant-change p { margin: 8px 0 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.assistant-downloads { display: grid; gap: 8px; margin-top: 12px; }
+.assistant-downloads a { justify-content: flex-start; white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 650px) { .ai-demo-banner { display: block; } .ai-demo-banner > button { margin-top: 14px; } .ai-demo-page { padding: 16px; } }

@@ -3,6 +3,7 @@ import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { configuredCloud } from "../lib/ledger-cloud-config";
 import { handleDemoAssistant } from "../lib/ai-demo-server";
+import { handleAssistant } from "../lib/ai-server";
 
 function documentPolicy(env: Cloudflare.Env) {
   const random = crypto.getRandomValues(new Uint8Array(16));
@@ -34,7 +35,8 @@ function documentPolicy(env: Cloudflare.Env) {
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
     const pathname = new URL(request.url).pathname;
-    if (pathname === "/api/assistant") return handleDemoAssistant(request, env);
+    if (pathname === "/api/assistant") return handleAssistant(request, env);
+    if (pathname === "/api/ai-demo") return handleDemoAssistant(request, env);
     // Ledger writes go directly to Supabase after the user reviews a preview.
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });

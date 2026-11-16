@@ -1,15 +1,19 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Check, FileText, Sparkles, Square, Trash2 } from "lucide-react";
+import { ArrowUp, Check, Download, FileText, Paperclip, Sparkles, Square, Trash2, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { accountCurrency, money, parseMoney, validateFormEntry, type Entry, type EntryDraft, type ReimbursementMode, type Workspace } from "@/lib/ledger";
-import { type ChatMessage, type DraftPreview, type ReportEvidence, type Statement } from "@/lib/ai-contract";
+import { accountCurrency, money, parseMoney, validateFormEntry, workspaceForBook, type Currency, type Entry, type EntryDraft, type ReimbursementMode, type Workspace } from "@/lib/ledger";
+import { MAX_UPLOAD_BYTES, previewForModel, reportDownloadSchema, type AssistantResult, type Attachment, type ChatMessage, type DraftPreview, type ReportEvidence, type Statement } from "@/lib/ai-contract";
+import type { WorkspacePreview } from "@/lib/ai-workspace";
+import { prepareStatementDownload } from "@/lib/statement";
 import { statementChecks } from "@/lib/ai-finance";
-import { demoActions, SAMPLE_PDF_NAME, type DemoAction, type DemoResult } from "@/lib/ai-demo";
+import type { CloudConfig } from "@/lib/ledger-cloud-config";
+import { getSupabase } from "@/lib/ledger-cloud";
 import { EntryFields } from "./ledger-entry";
 
-type Message = ChatMessage & { id: string; evidence?: ReportEvidence[]; recorded?: boolean };
+type DownloadFile = { url: string; filename: string };
+type Message = ChatMessage & { id: string; evidence?: ReportEvidence[]; downloads?: DownloadFile[] };
 const modeFor = (p: DraftPreview): ReimbursementMode => p.draft.people?.length ? "split" : !p.draft.reimbursable ? "none" : parseMoney(p.draft.reimbursable, p.currency) === parseMoney(p.draft.amount, p.currency) ? "full" : "partial";
 const evidenceLabel = (key: string) => ({ gross: "Gross expenses", spending: "Personal spending", cash: "Cash balance", invested: "Investment value", collected: "Reimbursements received", contribution: "Investment contributions", withdrawal: "Investment withdrawals", receivable: "Outstanding reimbursements" }[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " "));
 const visibleKey = (key: string) => key !== "id" && !key.endsWith("_id") && !key.endsWith("_minor") && key !== "minor" && key !== "custom_values";
@@ -36,14 +40,14 @@ function EvidenceValue({ value, depth = 0 }: { value: unknown; depth?: number })
   return null;
 }
 function Evidence({ evidence }: { evidence: ReportEvidence[] }) {
-  return <div className="assistant-evidence">{evidence.map(item => <details key={item.id}><summary>[{item.id}] {item.title}</summary><p>Calculated from the original fixed fictional sample ledger.</p><EvidenceValue value={item.data}/></details>)}</div>;
+  return <div className="assistant-evidence">{evidence.map(item => <details key={item.id}><summary>[{item.id}] {item.title}</summary><p>Calculated from saved records for this request.</p><EvidenceValue value={item.data}/></details>)}</div>;
 }
-export function EntryAssistant({ workspace, onSave }: {
-  workspace: Workspace; onSave: (entries: Entry[]) => Promise<void>;
+export function EntryAssistant({ workspace, reportWorkspace, currency, cloud, sheetId, onSave, onSaveChange }: {
+  workspace: Workspace; reportWorkspace: Workspace; currency: Currency; cloud: CloudConfig | null; sheetId: string; onSave: (entries: Entry[]) => Promise<void>; onSaveChange: (preview: WorkspacePreview) => Promise<void>;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [serverState, setServerState] = useState<string>();
-  const [dinnerDraft, setDinnerDraft] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [files, setFiles] = useState<Attachment[]>([]);
   const [previews, setPreviews] = useState<DraftPreview[]>([]);
   const [statement, setStatement] = useState<Statement | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -51,53 +55,80 @@ export function EntryAssistant({ workspace, onSave }: {
   const [problem, setProblem] = useState("");
   const [working, setWorking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reading, setReading] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [changes, setChanges] = useState<WorkspacePreview[]>([]);
+  const downloadUrls = useRef<string[]>([]);
   const busy = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const thread = useRef<HTMLDivElement>(null);
   const form = useRef<HTMLFormElement>(null);
+  const upload = useRef<HTMLInputElement>(null);
   useEffect(() => { if (thread.current) thread.current.scrollTop = thread.current.scrollHeight; }, [messages, working]);
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => () => { controller.current?.abort(); downloadUrls.current.forEach(url => URL.revokeObjectURL(url)); }, []);
   const checks = statementChecks(previews, statement);
   const needsAcknowledgement = checks.some(check => !check.ok);
-  const locked = working || saving;
-  async function send(action: DemoAction) {
-    if (busy.current || locked) return;
+  const locked = working || saving || reading;
+  async function attach(incoming: FileList | null) {
+    if (!incoming || locked) return;
+    setReading(true); setProblem("");
+    try {
+      const existing = [...messages.flatMap(m => m.attachments ?? []), ...files];
+      if (existing.reduce((n, f) => n + Math.ceil(f.data.length * 3 / 4), 0) + [...incoming].reduce((n, f) => n + f.size, 0) > MAX_UPLOAD_BYTES || existing.length + incoming.length > 5) throw Error("Attach up to 5 files and 3 MB total per chat. Start a new chat for more files.");
+      const attachments: Attachment[] = [];
+      for (const file of incoming) {
+        const type = file.type || (/\.csv$/i.test(file.name) ? "text/csv" : /\.txt$/i.test(file.name) ? "text/plain" : "");
+        if (!["application/pdf", "image/png", "image/jpeg", "text/plain", "text/csv"].includes(type)) throw Error("Choose a PDF, PNG, JPEG, CSV or text file.");
+        const bytes = new Uint8Array(await file.arrayBuffer()); let binary = "";
+        for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        attachments.push({ name: file.name.slice(0, 160), type: type as Attachment["type"], data: btoa(binary) });
+      }
+      setFiles(current => [...current, ...attachments]);
+    } catch (error) { setProblem(error instanceof Error ? error.message : "Couldn’t attach this file."); }
+    finally { setReading(false); if (upload.current) upload.current.value = ""; }
+  }
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    if (busy.current || locked || !cloud || (!prompt.trim() && !files.length)) return;
+    if (messages.length >= 28) { setProblem("This chat is full. Submit or discard drafts, then start a new chat."); return; }
     busy.current = true; setWorking(true); setProblem("");
+    const user: Message = { id: crypto.randomUUID(), role: "user", text: prompt.trim() || "Read this statement and prepare an editable transaction preview.", attachments: files };
+    const conversation = [...messages, user];
     const abort = new AbortController(); controller.current = abort;
     try {
-      // Deliberately send only a scenario ID and server-signed context. Never send local records or edits.
-      const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, signal: abort.signal,
-        body: JSON.stringify({ action, state: serverState }) });
-      const result = await response.json() as DemoResult & { error?: string };
-      if (!response.ok) throw Error(result.error || "The demo could not complete this request.");
-      setServerState(result.state);
-      const user: Message = { id: crypto.randomUUID(), role: "user", text: result.userText,
-        ...(result.sampleAttached ? { attachments: [{ name: SAMPLE_PDF_NAME, type: "application/pdf", data: "" }] } : {}) };
-      setMessages(current => [...current, user, { id: crypto.randomUUID(), role: "assistant", text: result.text, evidence: result.evidence }]);
+      const { data: { session }, error } = await getSupabase(cloud).auth.getSession();
+      if (error || !session) throw Error("Sign in again before using the assistant.");
+      const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, signal: abort.signal,
+        body: JSON.stringify({ messages: conversation.map(({ role, text, attachments }) => ({ role, text, attachments })), sheet_id: sheetId, currency,
+          previews: previews.map(p => previewForModel({ ...p, draft: { ...p.draft, people: claims[p.draft.id] === "split" ? p.draft.people : undefined,
+            reimbursable: claims[p.draft.id] === "none" ? "" : claims[p.draft.id] === "full" ? p.draft.amount : p.draft.reimbursable } })), statement }) });
+      const result = await response.json() as AssistantResult & { error?: string };
+      if (!response.ok) throw Error(result.error || "The assistant could not complete this request.");
+      const assistantId = crypto.randomUUID();
+      setMessages([...conversation, { id: assistantId, role: "assistant", text: result.text, evidence: result.evidence }]);
+      setPrompt(""); setFiles([]);
+      if (result.changes?.length) setChanges(current => [...current, ...result.changes!]);
       if (result.previews !== null) {
         setPreviews(result.previews); setStatement(result.statement); setAcknowledged(false);
         setSelected(new Set(result.previews.filter(p => !p.duplicates.length).map(p => p.draft.id)));
         setClaims(Object.fromEntries(result.previews.map(p => [p.draft.id, modeFor(p)])));
-        setDinnerDraft(action === "dinner" || action === "correction");
       }
-    } catch (error) { setProblem(abort.signal.aborted ? "Request stopped. No records were saved." : error instanceof Error ? error.message : "The demo could not respond. Try again."); }
-    finally { busy.current = false; setWorking(false); controller.current = null; }
-  }
-  async function loadRecordedExample() {
-    if (busy.current || locked) return;
-    busy.current = true; setWorking(true); setProblem("");
-    const abort = new AbortController(); controller.current = abort;
-    try {
-      const response = await fetch("/ai-demo-recorded-example.json", { signal: abort.signal });
-      if (!response.ok) throw Error("The recorded example could not be loaded.");
-      const example = await response.json() as Pick<DemoResult, "text" | "previews" | "statement">;
-      const rows = (example.previews ?? []).map(p => ({ ...p, draft: { ...p.draft, id: crypto.randomUUID() }, duplicates: [] }));
-      setMessages(current => [...current, { id: crypto.randomUUID(), role: "user", text: "Show the recorded Gemini PDF example." },
-        { id: crypto.randomUUID(), role: "assistant", text: example.text, recorded: true }]);
-      setPreviews(rows); setStatement(example.statement); setServerState(undefined); setDinnerDraft(false); setAcknowledged(false);
-      setSelected(new Set(rows.map(p => p.draft.id))); setClaims(Object.fromEntries(rows.map(p => [p.draft.id, modeFor(p)])));
-    } catch (error) { setProblem(error instanceof Error ? error.message : "Could not load the recorded example."); }
+      const downloads: DownloadFile[] = [];
+      for (const requested of result.downloads ?? []) {
+        const spec = reportDownloadSchema.parse(requested);
+        if (spec.sheet_id && !reportWorkspace.finance_books.some(book => book.id === spec.sheet_id)) throw Error("That report sheet is no longer available. Ask for the report again.");
+        const scoped = spec.scope === "all" ? reportWorkspace : workspaceForBook(reportWorkspace, spec.sheet_id ?? sheetId);
+        const label = spec.scope === "all" ? "All sheets" : reportWorkspace.finance_books.find(b => b.id === (spec.sheet_id ?? sheetId))?.name ?? "Personal";
+        const file = await prepareStatementDownload(scoped, spec.period, spec.currency, false, spec.kind, label);
+        if (abort.signal.aborted) throw new DOMException("Request stopped", "AbortError");
+        const url = URL.createObjectURL(file.blob); downloadUrls.current.push(url);
+        downloads.push({ url, filename: file.filename });
+      }
+      if (downloads.length) {
+        setMessages(current => current.map(message => message.id === assistantId ? { ...message, downloads } : message));
+        for (const file of downloads) { const link = document.createElement("a"); link.href = file.url; link.download = file.filename; document.body.appendChild(link); link.click(); link.remove(); }
+      }
+    } catch (error) { setProblem(abort.signal.aborted ? "Request stopped. No entries were saved." : error instanceof Error ? error.message : "The assistant could not respond. Try again."); }
     finally { busy.current = false; setWorking(false); controller.current = null; }
   }
   function edit(id: string, update: (draft: EntryDraft) => EntryDraft) {
@@ -106,7 +137,18 @@ export function EntryAssistant({ workspace, onSave }: {
   }
   function reset() {
     if (locked) return;
-    setMessages([]); setPreviews([]); setStatement(null); setServerState(undefined); setDinnerDraft(false); setSelected(new Set()); setClaims({}); setProblem(""); setAcknowledged(false);
+    setMessages([]); setPreviews([]); setStatement(null); setPrompt(""); setFiles([]); setSelected(new Set()); setClaims({}); setProblem(""); setAcknowledged(false);
+    setChanges([]); downloadUrls.current.forEach(url => URL.revokeObjectURL(url)); downloadUrls.current = [];
+  }
+  async function approveChange(preview: WorkspacePreview) {
+    if (busy.current || locked) return;
+    busy.current = true; setSaving(true); setProblem("");
+    try {
+      await onSaveChange(preview);
+      setChanges(current => current.filter(item => item.id !== preview.id));
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: "assistant", text: `Confirmed: ${preview.title}. The change is saved to your account and will be included when I next check your records.` }]);
+    } catch (error) { setProblem(error instanceof Error ? error.message : "The change could not be saved. Your preview is still available."); }
+    finally { busy.current = false; setSaving(false); }
   }
   async function submit(event: FormEvent) {
     event.preventDefault(); if (busy.current || locked || !selected.size) return;
@@ -137,35 +179,41 @@ export function EntryAssistant({ workspace, onSave }: {
     busy.current = true; setSaving(true); setProblem("");
     try {
       await onSave(entries);
-      setMessages(current => [...current, { id: crypto.randomUUID(), role: "assistant", text: `Added ${entries.length} reviewed ${entries.length === 1 ? "entry" : "entries"} to the browser-only fictional review ledger. No database records were written.` }]);
-      setPreviews(current => current.filter(p => !selected.has(p.draft.id))); setSelected(new Set()); setStatement(null); setDinnerDraft(false);
+      setMessages(current => [...current, { id: crypto.randomUUID(), role: "assistant", text: `Saved ${entries.length} reviewed ${entries.length === 1 ? "entry" : "entries"} to this sheet.` }]);
+      setPreviews(current => current.filter(p => !selected.has(p.draft.id))); setSelected(new Set()); setStatement(null);
     } catch (error) { setProblem(error instanceof Error ? error.message : "Couldn’t save these entries. Your previews are still available."); }
     finally { busy.current = false; setSaving(false); }
   }
   return <div className="assistant-layout ai-layout">
     <section className="panel assistant-chat" aria-label="Finance AI chat">
-      <header><span className="glyph" data-tone="orchid"><Sparkles size={19}/></span><div><h2>Live AI demo</h2><p>Explore fictional examples with Gemini.</p></div>
+      <header><span className="glyph" data-tone="orchid"><Sparkles size={19}/></span><div><h2>Finance assistant</h2><p>Ask about your records, describe entries, or attach a statement.</p></div>
         <button type="button" className="icon-button" disabled={locked} onClick={reset} title={previews.length ? "Discard drafts and start a new chat" : "New chat"} aria-label={previews.length ? "Discard drafts and start a new chat" : "New chat"}><Trash2 size={17}/></button></header>
       <div className="assistant-thread" role="log" aria-label="Conversation" ref={thread}>
-        <div className="assistant-bubble"><p>Choose a sample conversation below. I can summarize the fictional ledger, read the included sample PDF, and prepare editable entries. Live scenarios generate replies with Gemini. The optional recorded example is labeled separately.</p>
-        </div>
+        <div className="assistant-bubble"><p>Ask me to summarize your finances from the first recorded day, find a payment, or read a bank statement. I’ll prepare entries for you to review before saving.</p>
+          <div className="assistant-starters">{["Summarize all my finances from the first recorded day across all sheets.", "Show my largest expenses this month."].map(text => <button className="button quiet" type="button" key={text} disabled={locked || !cloud} onClick={() => setPrompt(text)}>{text}</button>)}</div></div>
         {messages.map(message => <div key={message.id} className={"assistant-bubble " + (message.role === "user" ? "you" : "")}><span className="sr-only">{message.role === "user" ? "You" : "Assistant"} </span>
-          {message.recorded && <p className="pill amber">Recorded Gemini example · not a live response</p>}
           <div className="assistant-markdown"><Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ children }) => <span>{children}</span>, img: () => null }}>{message.text}</Markdown></div>
           {message.attachments?.map((file, index) => <p className="assistant-file" key={index}><FileText size={14}/>{file.name}</p>)}
-          {!!message.evidence?.length && <Evidence evidence={message.evidence}/>}</div>)}
-        {working && <p className="assistant-bubble" role="status">Preparing the demo response…</p>}
+          {!!message.evidence?.length && <Evidence evidence={message.evidence}/>}
+          {!!message.downloads?.length && <div className="assistant-downloads">{message.downloads.map(file => <a key={file.url} className="button secondary" href={file.url} download={file.filename}><Download size={17} aria-hidden="true"/>{file.filename}</a>)}</div>}</div>)}
+        {working && <p className="assistant-bubble" role="status">Reading your message and checking relevant records…</p>}
       </div>
       <div className="assistant-input-area">
-        <p className="assistant-privacy">Fictional scenarios only. Google Gemini processes the fixed sample prompts, records and PDF. Your private ledger, uploaded files and review edits are never sent. Reports use the original sample ledger. <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a></p>
-        <div className="assistant-starters" aria-label="Choose a fictional AI scenario">{Object.entries(demoActions).map(([id, action]) => <button type="button" className="button secondary" key={id} disabled={locked || id === "correction" && !dinnerDraft} onClick={() => void send(id as DemoAction)}>{action.label}</button>)}</div>
-        <p className="assistant-privacy">Starting another statement or dinner scenario replaces the current draft batch. The recorded PDF example works without live API quota; its source is <a href="/fictional-statement.pdf" target="_blank" rel="noreferrer">this fictional PDF</a>.</p>
-        <div className="button-line"><button className="button quiet" type="button" disabled={locked} onClick={() => void loadRecordedExample()}>View recorded PDF example</button><a className="button quiet" href={"/" + SAMPLE_PDF_NAME} target="_blank" rel="noreferrer">Open sample PDF</a>{working && <button type="button" className="button quiet" onClick={() => controller.current?.abort()}><Square size={15}/>Stop response</button>}</div>
-        {problem && <p className="form-message error" role="alert">{problem}</p>}
+        {!cloud && <p className="form-message">Sign in to a connected workspace to use AI. Demo records stay on this device.</p>}
+        <p className="assistant-privacy">When you send, Google Gemini processes your message, attachments and relevant financial records. Finance Studio keeps chat history in this tab only. Start a new chat to clear it. <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a></p>
+        {!!changes.length && <section className="assistant-change-review" aria-label="Review proposed changes"><h3>Review proposed changes</h3><p className="assistant-privacy">Check each change before confirming. Nothing here is saved automatically.</p>{changes.map(change => <div className="assistant-change" key={change.id}><strong>{change.title}</strong><p>{change.detail}</p><div className="button-line"><button type="button" className={"button " + (change.remove ? "danger" : "primary")} disabled={locked} onClick={() => void approveChange(change)}>{saving ? "Saving…" : change.remove ? "Confirm undo" : "Confirm change"}</button><button type="button" className="button quiet" disabled={locked} onClick={() => setChanges(current => current.filter(item => item.id !== change.id))}>Discard change</button></div></div>)}</section>}
+        {!!files.length && <div className="assistant-files">{files.map((file, index) => <span key={index}><FileText size={14}/>{file.name}<button type="button" disabled={locked} onClick={() => setFiles(current => current.filter((_, i) => i !== index))} aria-label={`Remove ${file.name}`}><X size={14}/></button></span>)}</div>}
+        <form className="assistant-composer" onSubmit={send}>
+          <input ref={upload} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.csv,.txt" className="sr-only" disabled={locked || !cloud} onChange={e => void attach(e.target.files)}/>
+          <button type="button" className="icon-button" title="Attach a statement (up to 3 MB per chat)" aria-label="Attach a statement" disabled={locked || !cloud} onClick={() => upload.current?.click()}><Paperclip size={19}/></button>
+          <textarea aria-label="Message to the finance assistant" aria-describedby="assistant-keyboard-hint" placeholder="Ask a question or describe what to record…" value={prompt} rows={3} maxLength={24000} disabled={locked || !cloud} onChange={e => setPrompt(e.target.value)} onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}/>
+          {working ? <button type="button" className="button secondary" aria-label="Stop response" onClick={() => controller.current?.abort()}><Square size={17}/></button>
+            : <button type="submit" className="button primary" aria-label="Send message" disabled={!cloud || locked || (!prompt.trim() && !files.length)}><ArrowUp size={19}/></button>}
+        </form><p id="assistant-keyboard-hint" className="assistant-privacy">Ctrl+Enter or Command+Enter to send.</p>{reading && <p role="status">Attaching files…</p>}{problem && <p className="form-message error" role="alert">{problem}</p>}
       </div>
     </section>
     {previews.length ? <form ref={form} className="panel assistant-preview ai-preview" onSubmit={submit} noValidate>
-      <header><div><h2>Review {previews.length} {previews.length === 1 ? "entry" : "entries"}</h2><p>Edit the fictional examples, then submit to this tab’s review ledger. Edits stay in your browser.</p></div><span className="pill amber">Draft</span></header>
+      <header><div><h2>Review {previews.length} {previews.length === 1 ? "entry" : "entries"}</h2><p>Nothing is saved until you submit. Check source dates, amounts and accounts.</p></div><span className="pill amber">Draft</span></header>
       {!!checks.length && <div className="assistant-reconciliation"><h3>Statement checks</h3>{checks.map(check => <p key={check.label} className={check.ok ? "" : "form-message error"}><strong>{check.ok ? "✓" : "!"} {check.label}</strong><br/>{check.detail}</p>)}
         {needsAcknowledgement && <label><input type="checkbox" checked={acknowledged} disabled={locked} onChange={e => setAcknowledged(e.target.checked)}/> I checked these differences against the statement and want to save the selected entries.</label>}</div>}
       <div className="assistant-batch-actions"><button className="button quiet" type="button" disabled={locked} onClick={() => setSelected(new Set(previews.filter(p => !p.duplicates.length).map(p => p.draft.id)))}>Select non-duplicates</button><button className="button quiet" type="button" disabled={locked} onClick={() => setSelected(new Set())}>Deselect all</button></div>
@@ -178,7 +226,7 @@ export function EntryAssistant({ workspace, onSave }: {
           <details open={previews.length === 1 || undefined}><summary>Edit entry details</summary><fieldset disabled={locked}><EntryFields workspace={workspace} draft={preview.draft} setDraft={update => edit(id, update)} currency={preview.currency} errors={preview.errors} claim={claims[id] ?? "none"} setClaim={mode => { setClaims(current => ({ ...current, [id]: mode })); setAcknowledged(false); }} lockCurrency/></fieldset></details>
         </div>;
       })}
-      <div className="button-line"><button type="button" className="button quiet" disabled={locked} onClick={() => { setPreviews([]); setStatement(null); setSelected(new Set()); setDinnerDraft(false); }}>Discard drafts</button><button type="submit" className="button primary" disabled={locked || !selected.size}><Check size={17}/>{saving ? "Saving…" : `Submit ${selected.size} ${selected.size === 1 ? "entry" : "entries"}`}</button></div>
-    </form> : <section className="panel assistant-preview assistant-empty"><h2>Your review area</h2><p>Transaction drafts from chat or statements will appear here. Questions and summaries use the original fictional sample ledger. Review edits and submissions stay in this browser tab.</p></section>}
+      <div className="button-line"><button type="button" className="button quiet" disabled={locked} onClick={() => { setPreviews([]); setStatement(null); setSelected(new Set()); }}>Discard drafts</button><button type="submit" className="button primary" disabled={locked || !selected.size}><Check size={17}/>{saving ? "Saving…" : `Submit ${selected.size} ${selected.size === 1 ? "entry" : "entries"}`}</button></div>
+    </form> : <section className="panel assistant-preview assistant-empty"><h2>Your review area</h2><p>Transaction drafts from chat or statements will appear here. Questions and summaries use your saved records without changing them.</p></section>}
   </div>;
 }

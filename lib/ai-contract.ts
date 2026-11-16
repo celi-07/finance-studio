@@ -45,7 +45,14 @@ export type DraftPreview = {
   warnings: string[]; errors: Record<string, string>; duplicates: string[];
 };
 export type ReportEvidence = { id: string; title: string; data: Record<string, unknown> };
-export type AssistantResult = { text: string; previews: DraftPreview[] | null; statement: Statement | null; evidence: ReportEvidence[] };
+export const reportDownloadSchema = z.object({
+  kind: z.enum(["overview", "transactions", "reimbursements", "investments"]),
+  period: z.string().regex(/^(all|(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2]))?)$/),
+  currency: currencySchema, scope: z.enum(["sheet", "all"]), sheet_id: z.string().max(80).nullable(),
+}).strict();
+export type ReportDownload = z.infer<typeof reportDownloadSchema>;
+export type AssistantResult = { text: string; previews: DraftPreview[] | null; statement: Statement | null; evidence: ReportEvidence[];
+  downloads?: ReportDownload[]; changes?: import("./ai-workspace.ts").WorkspacePreview[] };
 export const assistantRequestSchema = z.object({
   messages: z.array(chatMessageSchema).min(1).max(30),
   sheet_id: z.string().max(80), currency: currencySchema,
