@@ -169,7 +169,8 @@ test("unknown tools and invented source filenames are rejected with no preview",
     assert.match(JSON.stringify(payload.contents.flatMap(c => c.parts).find(p => p.functionResponse).functionResponse.response), /filenames attached/);
     return textResponse("Please attach the document.");
   }));
-  assert.equal((await response.json()).previews, null);
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /filenames attached/);
 });
 
 test("truncated model output and excessive tool loops fail without partial imports", async () => {

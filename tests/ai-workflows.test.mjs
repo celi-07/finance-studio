@@ -88,7 +88,7 @@ test("unknown report sheets and unavailable currencies return tool errors instea
       assert.ok(payload.contents.at(-1).parts[0].functionResponse.response.error);
       return reply("Choose a saved sheet and currency.");
     }));
-    assert.equal(response.status, 200); assert.deepEqual((await response.json()).downloads, []);
+    assert.equal(response.status, 422); assert.match((await response.json()).error, /could not prepare/);
   }
 });
 
@@ -111,6 +111,23 @@ test("setup drafts generate trusted fields without writing data and reject injec
   assert.throws(() => workspaceActionSchema.parse({ change: { ...action, user_id: "other-owner" } }));
   assert.throws(() => change(data, { ...action, name: "bank" }), /already exists/);
   assert.throws(() => change(data, { ...action, opening_balance: "-1" }), /valid/);
+});
+
+test("Gemini receives explicit action enums and cannot claim a preview after a rejected action", async () => {
+  let round = 0;
+  const response = await handleAssistant(request(), env, deps(workspace(), async payload => {
+    if (!round++) {
+      const schema = payload.tools[0].functionDeclarations.find(t => t.name === "prepare_workspace_preview").parametersJsonSchema;
+      assert.equal(schema.properties.change.oneOf, undefined);
+      assert.deepEqual(schema.properties.change.anyOf[0].properties.type.enum, ["create_account"]);
+      assert.equal(schema.properties.change.anyOf[0].properties.type.const, undefined);
+      return call("prepare_workspace_preview", { change: { type: "bank", name: "AI Test Bank", kind: "bank", currency: "IDR", opening_balance: "0", opening_date: "2026-10-01" } });
+    }
+    assert.match(payload.contents.at(-1).parts[0].functionResponse.response.error, /change.type/);
+    return reply("I prepared your account preview. Approve it now.");
+  }));
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /No changes were saved/);
 });
 
 test("configuration, goals and balance previews enforce sheet, account and date constraints", () => {
