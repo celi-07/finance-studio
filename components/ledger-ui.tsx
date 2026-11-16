@@ -18,10 +18,10 @@ const activityStyles: Record<Activity["kind"], { icon: LucideIcon; tone: string 
   reimbursement_receipt: { icon: TicketCheck, tone: "mint" },
   balance_update: { icon: ChartNoAxesCombined, tone: "orchid" },
 };
-const categoryIcons = new Map<string, LucideIcon>([
-  ["food & drink", Utensils], ["transport", TrainFront], ["home & bills", House],
-  ["shopping", ShoppingBag], ["health", HeartPulse], ["salary", BriefcaseBusiness], ["freelance", PenTool],
-]);
+const categoryIcons: Record<string, LucideIcon> = {
+  "food & drink": Utensils, transport: TrainFront, "home & bills": House,
+  shopping: ShoppingBag, health: HeartPulse, salary: BriefcaseBusiness, freelance: PenTool,
+};
 const categoryTones = new Map([
   ["green", "mint"], ["blue", "blue"], ["amber", "amber"], ["violet", "orchid"], ["rose", "coral"],
   ["teal", "mint"], ["cyan", "blue"], ["indigo", "orchid"], ["plum", "orchid"],
@@ -73,7 +73,7 @@ export function Field({ label, children, error, full, hint }: { label: string; c
 export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspace: Workspace; onOpen: (row: Activity) => void }) {
   const fallback = activityStyles[row.kind];
   const category = workspace.categories.find(item => item.id === row.entry?.category_id);
-  const Icon = category ? categoryIcons.get(category.name.toLowerCase()) ?? fallback.icon : fallback.icon;
+  const Icon = category ? categoryIcons[category.name.toLowerCase()] ?? fallback.icon : fallback.icon;
   const tone = (category && categoryTones.get(category.color)) || fallback.tone;
   const amount = activityMoney(row, currencyForAccount(workspace, row.accountId));
   return <button type="button" className="activity-row" onClick={() => onOpen(row)} aria-label={"View " + row.title + ", " + activityLabel(row) + ", " + amount}>

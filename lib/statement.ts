@@ -27,10 +27,20 @@ async function loadFont(file: string) {
 
 type StatementFilters = { activity?: Activity[]; people?: readonly string[] };
 
+export function statementFileName(kind: StatementKind) {
+  return `Finance Studio - ${screenNames[kind]} - ${filenameDate.format(new Date())}.pdf`;
+}
+
+export async function prepareStatementDownload(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string) {
+  const fonts = await Promise.all(fontFiles.map(loadFont));
+  const pdf = await createStatement(workspace, period, currency, demo, fonts, kind, sheet);
+  return { blob: pdf.output("blob"), filename: statementFileName(kind) };
+}
+
 export async function downloadStatement(workspace: Workspace, period: string, currency: Currency, demo: boolean, kind: StatementKind, sheet?: string, filters?: StatementFilters) {
   const fonts = await Promise.all(fontFiles.map(loadFont));
   const pdf = await createStatement(workspace, period, currency, demo, fonts, kind, sheet, filters);
-  pdf.save(`Finance Studio - ${screenNames[kind]} - ${filenameDate.format(new Date())}.pdf`);
+  pdf.save(statementFileName(kind));
 }
 
 type Columns = Record<number, { cellWidth?: number; halign?: "right" }>;

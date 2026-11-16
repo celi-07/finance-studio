@@ -16,14 +16,15 @@ import { Picker, ReportingPeriod, type PeriodMode } from "./ledger-picker";
 import { CombinedOverview, filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 import { FinanceWelcome, ProviderSignIn, VerifyEmail } from "./finance-welcome";
 import { ActivityCalendar, GoalDialog, SavingsGoals } from "./ledger-planning";
-import { AIDemo } from "./ai-demo";
+import { EntryAssistant } from "./ledger-assistant";
+import { prepareWorkspacePreview, type WorkspacePreview } from "@/lib/ai-workspace";
 
 const routes = {
   overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
   transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: ReceiptText },
   reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
   investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartNoAxesCombined },
-  assistant: { label: "Assistant", caption: "Explore AI with fictional financial records", icon: Sparkles },
+  assistant: { label: "Assistant", caption: "Ask about records, prepare changes and download reports", icon: Sparkles },
   settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
 type Route = keyof typeof routes;
@@ -40,7 +41,7 @@ type AuthMode = "sign-in" | "sign-up" | "reset" | "recover";
 function authMessage(error: unknown, mode: AuthMode) {
   const code = isAuthError(error) ? error.code : undefined;
   if (code === "invalid_credentials") return "Check your email and password and try again.";
-  if (code === "email_not_confirmed") return "Open the confirmation link in your email before signing in.";
+  if (code === "email_not_confirmed") return "Open the confirmation link in your email before signing in. Check your spam or junk folder if you can’t find it.";
   if (code === "weak_password") return "Choose a stronger password and try again.";
   if (code === "same_password") return "Choose a password you haven’t used for this account.";
   if (code?.endsWith("rate_limit")) return "Too many attempts. Wait a moment and try again.";
@@ -83,7 +84,7 @@ function AuthScreen({ cloud, recovery, onRecovered, onBack, returnError }: { clo
       } else if (current === "sign-up") {
         const { data, error: issue } = await auth.signUp({ email, password, options: { emailRedirectTo: origin } });
         if (issue) throw issue;
-        if (!data.session) setMessage("Check your email and open the confirmation link in this browser.");
+        if (!data.session) setMessage("Check your email and open the confirmation link in this browser. The email may be in your spam or junk folder.");
       } else {
         const { error: issue } = await auth.signInWithPassword({ email, password });
         if (issue) throw issue;
@@ -141,6 +142,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
   const dataRef = useRef(data);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [assistantIdentity, setAssistantIdentity] = useState("demo");
+  const [signedInEmail, setSignedInEmail] = useState("");
   const owner = useRef<string | null>(null);
   const [verification, setVerification] = useState<{ id: string; email: string } | null>(null);
   const saving = useRef(false);
@@ -161,23 +164,26 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     };
     read();
     const url = new URL(window.location.href);
-    if (url.searchParams.has("error") || url.hash.startsWith("#error=")) {
+    const recoveryNotice = url.searchParams.has("error") || url.hash.startsWith("#error=") ? setTimeout(() => {
       setShowAccess(true);
       setReturnError(true);
       window.history.replaceState(null, "", "/");
-    }
+    }, 0) : undefined;
     window.addEventListener("hashchange", read);
-    return () => window.removeEventListener("hashchange", read);
+    return () => { window.removeEventListener("hashchange", read); clearTimeout(recoveryNotice); };
   }, []);
   useEffect(() => {
     let mounted = true;
     let sessionKey: string | undefined;
     let recovering = false;
     if (!cloud) {
-      try { update(readDemo()); }
-      catch (error) { setProblem(errorText(error)); }
-      setLoading(false);
-      return;
+      const timer = setTimeout(() => {
+        if (!mounted) return;
+        try { update(readDemo()); }
+        catch (error) { setProblem(errorText(error)); }
+        setLoading(false);
+      }, 0);
+      return () => { mounted = false; clearTimeout(timer); };
     }
     try {
       const supabase = getSupabase(cloud);
@@ -191,6 +197,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         const nextKey = proof ? proof.id + (recovering ? ":recover" : proof.verified ? ":verified" : ":pending") : user ? user.id + ":invalid" : "";
         if (nextKey === sessionKey) return;
         sessionKey = nextKey;
+        setAssistantIdentity(nextKey);
+        setSignedInEmail(nextOwner ? user?.email ?? "" : "");
         owner.current = nextOwner;
         setRecovery(recovering);
         setVerification(!recovering && !nextOwner && proof?.email ? { id: proof.id, email: proof.email } : null);
@@ -215,7 +223,10 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         }, 0);
       });
       return () => { mounted = false; subscription.unsubscribe(); };
-    } catch { setProblem("Couldn’t connect to Finance Studio. Try again in a moment."); setLoading(false); }
+    } catch {
+      const timer = setTimeout(() => { if (mounted) { setProblem("Couldn’t connect to Finance Studio. Try again in a moment."); setLoading(false); } }, 0);
+      return () => { mounted = false; clearTimeout(timer); };
+    }
   }, [cloud]);
   useEffect(() => {
     if (!notice) return;
@@ -268,6 +279,14 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
       throw Error("Remove or unlink the associated reimbursement payments before deleting this entry.");
     }
     await removeRecord("transactions", entry.id, "Entry deleted");
+  }
+  async function saveAssistantChange(preview: WorkspacePreview) {
+    const validated = prepareWorkspacePreview(dataRef.current, currentSheet.id, preview.action);
+    if (validated.remove) {
+      await removeRecord("reimbursement_receipts", validated.remove.id, "Reimbursement payment undone", validated.remove.paymentGroup);
+    } else {
+      await save(validated.collection, validated.rows);
+    }
   }
   async function removeRecord(collection: "transactions" | "reimbursement_receipts" | "balance_updates", id: string, message: string, paymentGroup?: string) {
     if (saving.current) throw Error("Another change is being saved. Try again in a moment.");
@@ -401,7 +420,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
                 <button className="button quiet" onClick={() => setPanel({ type: "book", book: currentSheet })}><Pencil size={16}/> Rename sheet</button>
                 <button className="button danger quiet" onClick={() => setPanel({ type: "delete-sheet", book: currentSheet })}><Trash2 size={16}/> Delete sheet</button>
               </>}
-              {configured && <button className="button quiet" onClick={signOut}><LogOut size={16}/> Sign out</button>}
+              {configured && <><span className="muted">{signedInEmail}</span><button className="button quiet" onClick={signOut}><LogOut size={16}/> Sign out</button></>}
             </> : reportingPage && !combinedSheets && <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>}
           </div>
         </header>
@@ -428,7 +447,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
             onMove={moveField} onReset={() => setPanel({ type: "reset" })} onExport={() => exportDemo(data)} onGuide={() => setPanel({ type: "guide" })}/>}
         </div>
         {!loading && <div hidden={route !== "assistant"}>
-          <AIDemo key={owner.current ?? "demo"}/>
+          <EntryAssistant key={assistantIdentity + ":" + currentSheet.id} workspace={bookData} reportWorkspace={data} currency={currency} cloud={cloud} sheetId={currentSheet.id}
+            onSave={async entries => { await save("transactions", entries); }} onSaveChange={saveAssistantChange}/>
         </div>}
         <footer className="footer"><span>Finance Studio @whiteeorangee</span></footer>
       </div>

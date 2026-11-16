@@ -83,7 +83,7 @@ export async function handleDemoAssistant(request: Request, env: AIEnvironment =
       headers: { "Content-Type": "application/json", Authorization: "Bearer demo.internal" },
       body: JSON.stringify({ messages, sheet_id: "", currency: "IDR", previews: state.previews, statement: state.statement }) });
     const response = await handleAssistant(engineRequest, { ...env, SUPABASE_URL: "https://demo.invalid", SUPABASE_PUBLISHABLE_KEY: "sb_publishable_demo" }, {
-      authenticate: async () => ({ userId: "fictional-portfolio-demo", workspace: createAIDemo() }), respond: dependencies.respond,
+      demo: true, authenticate: async () => ({ userId: "fictional-portfolio-demo", workspace: createAIDemo() }), respond: dependencies.respond,
     });
     const result = await response.json() as AssistantResult & { error?: string };
     if (!response.ok) return json({ error: result.error ?? "The AI demo could not respond. Try again." }, response.status);

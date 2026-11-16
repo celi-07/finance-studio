@@ -180,10 +180,13 @@ test("truncated model output and excessive tool loops fail without partial impor
   assert.equal(looping.status, 422);
 });
 
-test("the internal engine has no default private-record reader", async t => {
-  let calls = 0; t.mock.method(globalThis, "fetch", async () => { calls++; throw Error("No network access should occur"); });
-  assert.equal((await handleAssistant(request(), env)).status, 403);
-  assert.equal(calls, 0);
+test("invalid user tokens fail before reading private records or invoking Gemini", async t => {
+  let calls = 0; t.mock.method(globalThis, "fetch", async url => {
+    calls++; assert.ok(String(url).endsWith("/auth/v1/user"));
+    return Response.json({ message: "Invalid token" }, { status: 401 });
+  });
+  assert.equal((await handleAssistant(request(), env)).status, 401);
+  assert.equal(calls, 1);
 });
 
 test("exhausted Gemini quota gives an actionable error", async t => {

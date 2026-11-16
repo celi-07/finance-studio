@@ -85,7 +85,7 @@ export function VerifyEmail({ cloud, email, onSignOut, signOutProblem }: {
   }
   return <main className="auth-screen"><section className="panel auth-panel">
     <Brand/><h1>Verify your email</h1>
-    <p>Enter the sign-in code for <strong>{email}</strong> to open your records.</p>
+    <p>Enter the sign-in code for <strong>{email}</strong> to open your records. Check your spam or junk folder if you can’t find the email.</p>
     <form onSubmit={verify}>
       <Field label="Verification code"><input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" maxLength={10} required/></Field>
       {(problem || signOutProblem) && <p className="form-message error" role="alert">{problem || signOutProblem}</p>}

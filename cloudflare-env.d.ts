@@ -9,5 +9,6 @@ declare namespace Cloudflare {
     GEMINI_API_KEY?: string;
     GEMINI_FALLBACK_API_KEY?: string;
     GEMINI_MODEL?: string;
+    GEMINI_FALLBACK_MODEL?: string;
   }
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  accountCurrency, accountName, categoryName, inPeriod, money, parseMoney, parseDate, periodReport,
+  accountCurrency, accountName, categoryName, claims, inPeriod, money, parseMoney, parseDate, periodReport,
   today, validateFormEntry, workspaceForBook, type Workspace, type Currency,
 } from "./ledger.ts";
 import { MAX_PREVIEWS, type DraftPreview, type ProposedEntry, type Statement } from "./ai-contract.ts";
@@ -12,7 +12,7 @@ export const searchQuerySchema = z.object({
   kind: z.string().nullable(), offset: z.number().int().min(0).max(1000000),
 });
 export const detailsQuerySchema = z.object({
-  collection: z.enum(["reimbursement_receipts", "investment_valuations", "balance_updates", "savings_goals", "reimbursement_people"]),
+  collection: z.enum(["reimbursement_claims", "reimbursement_receipts", "investment_valuations", "balance_updates", "savings_goals", "reimbursement_people"]),
   scope: z.enum(["sheet", "all"]), offset: z.number().int().min(0).max(1000000),
 });
 function scopeData(data: Workspace, sheet: string, scope: "sheet" | "all") { return scope === "all" ? data : workspaceForBook(data, sheet); }
@@ -70,7 +70,8 @@ export function findTransactions(data: Workspace, sheet: string, input: z.infer<
 }
 export function recordDetails(data: Workspace, sheet: string, input: z.infer<typeof detailsQuerySchema>) {
   const query = detailsQuerySchema.parse(input);
-  const rows = scopeData(data, sheet, query.scope)[query.collection];
+  const scoped = scopeData(data, sheet, query.scope);
+  const rows = query.collection === "reimbursement_claims" ? claims(scoped).map(claim => ({ expense_id: claim.entry.id, claim_id: claim.id, description: claim.entry.description, counterparty: claim.counterparty, due_on: claim.due_on, currency: accountCurrency(scoped.accounts.find(a => a.id === claim.entry.account_id)), remaining_minor: claim.remaining, status: claim.status })) : scoped[query.collection];
   return { collection: query.collection, total: rows.length, offset: query.offset, next_offset: query.offset + 80 < rows.length ? query.offset + 80 : null, rows: rows.slice(query.offset, query.offset + 80) };
 }
 export function makePreviews(workspace: Workspace, proposals: ProposedEntry[]): DraftPreview[] {

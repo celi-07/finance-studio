@@ -14,7 +14,7 @@ export default function PrivacyPage() {
     </header>
     <main className="panel privacy-policy">
       <h1>Privacy Policy</h1>
-      <p className="policy-date">Last updated <time dateTime="2026-11-15">November 15, 2026</time></p>
+      <p className="policy-date">Last updated <time dateTime="2026-11-16">November 16, 2026</time></p>
       <p>Finance Studio is a personal finance tracker. This policy explains what happens to your account information and the financial records you choose to enter.</p>
 
       <section aria-labelledby="google-sign-in">
@@ -31,6 +31,8 @@ export default function PrivacyPage() {
 
       <section aria-labelledby="ai-assistant">
         <h2 id="ai-assistant">AI assistant and statement uploads</h2>
+        <p>When you send a message in the signed-in Assistant, Google’s Gemini API processes your message, any attachments you select, and relevant account details and financial records retrieved for your request. Owner-scoped access controls and email verification apply to these reads. The assistant can prepare changes for review, but records are saved only when you confirm or submit the proposed change.</p>
+        <p>Chat and unsaved previews stay in the current browser tab. Approved records are saved in Supabase and are available to later reports and new sign-ins. Requested report PDFs use the existing statement generator in your browser and can be downloaded from the AI reply. Do not send sensitive documents unless you are comfortable with Google processing their contents under the <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>, including any applicable unpaid-service provisions for product improvement and human review. A separate authenticated request counter stores daily counts and request times without storing chat text.</p>
         <p>The public AI portfolio demo uses fixed fictional scenarios, an included sample PDF, and a server-supplied fictional ledger. Google’s Gemini API generates live scenario replies. An optional PDF example recorded during development is explicitly labeled as a recorded response. The demo does not accept custom messages or uploaded files, read your signed-in financial records, or send your local preview edits to Google.</p>
         <p>Demo conversations and review entries stay in browser-tab memory. The server returns a signed conversation state so subsequent demo steps can be verified; it is not a database record. Starting a new chat or closing the tab clears the local conversation. Reports refer to the original fixed sample ledger, while edited and submitted review rows stay only in the tab.</p>
         <p>Google processes the fictional API content under its <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>, including the unpaid-service provisions permitting product improvement and human review. No real bank statements or personal financial records are accepted by this demo. A separate request counter stores daily counts and a keyed hash derived from the visitor’s network address without the raw address or chat content. Rows older than seven days are cleared when the demo next accepts a request. Hosting providers may retain technical request logs under their own policies.</p>
