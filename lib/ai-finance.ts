@@ -5,32 +5,37 @@ import {
 } from "./ledger.ts";
 import { MAX_PREVIEWS, type DraftPreview, type ProposedEntry, type Statement } from "./ai-contract.ts";
 
-export const reportQuerySchema = z.object({ scope: z.enum(["sheet", "all"]), period: z.string().regex(/^(all|(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2]))?)$/) });
+const requestedSheet = z.string().max(80).nullable().optional().describe("Saved sheet ID; null uses the current sheet, empty string selects Personal.");
+export const reportQuerySchema = z.object({ scope: z.enum(["sheet", "all"]), sheet_id: requestedSheet, period: z.string().regex(/^(all|(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2]))?)$/) });
 export const searchQuerySchema = z.object({
-  scope: z.enum(["sheet", "all"]), from: z.string().nullable(), to: z.string().nullable(),
+  scope: z.enum(["sheet", "all"]), sheet_id: requestedSheet, from: z.string().nullable(), to: z.string().nullable(),
   search: z.string().max(200), account_id: z.string().nullable(), currency: z.string().nullable(),
   kind: z.string().nullable(), offset: z.number().int().min(0).max(1000000),
 });
 export const detailsQuerySchema = z.object({
   collection: z.enum(["reimbursement_claims", "reimbursement_receipts", "investment_valuations", "balance_updates", "savings_goals", "reimbursement_people"]),
-  scope: z.enum(["sheet", "all"]), offset: z.number().int().min(0).max(1000000),
+  scope: z.enum(["sheet", "all"]), sheet_id: requestedSheet, offset: z.number().int().min(0).max(1000000),
 });
-function scopeData(data: Workspace, sheet: string, scope: "sheet" | "all") { return scope === "all" ? data : workspaceForBook(data, sheet); }
+function scopeData(data: Workspace, sheet: string, scope: "sheet" | "all", requested?: string | null) {
+  const sheetId = requested ?? sheet;
+  if (sheetId && !data.finance_books.some(book => book.id === sheetId)) throw Error("Choose one of your saved sheets.");
+  return scope === "all" ? data : workspaceForBook(data, sheetId);
+}
 function safeMoney(value: number, currency: Currency) {
   if (!Number.isSafeInteger(value)) throw Error("This total exceeds the supported precision. Narrow the report before summarizing it.");
   return { minor: String(value), formatted: money(value, currency) };
 }
 export function financialReport(data: Workspace, sheet: string, input: z.infer<typeof reportQuerySchema>) {
-  const { scope, period } = reportQuerySchema.parse(input);
-  const workspace = scopeData(data, sheet, scope);
+  const { scope, period, sheet_id } = reportQuerySchema.parse(input);
+  const workspace = scopeData(data, sheet, scope, sheet_id);
   const dates = [...workspace.transactions.map(e => e.occurred_on), ...workspace.accounts.map(a => a.opening_date),
     ...workspace.reimbursement_receipts.map(r => r.received_on), ...workspace.balance_updates.map(r => r.recorded_on),
     ...workspace.investment_valuations.map(r => r.valued_on)].sort();
   const currencyList = [...new Set(workspace.accounts.map(accountCurrency))].sort();
   return {
-    scope: scope === "all" ? "All sheets" : data.finance_books.find(b => b.id === sheet)?.name ?? "Personal",
+    scope: scope === "all" ? "All sheets" : data.finance_books.find(b => b.id === (sheet_id ?? sheet))?.name ?? "Personal",
     period, as_of: today(), first_recorded_date: dates[0] ?? null, last_recorded_date: dates.at(-1) ?? null,
-    note: "Complete saved history; currencies are never added together. All time includes all saved dates, including any future-dated entries. Transfers are not income or spending. Personal spending excludes reimbursable portions. Balance adjustments and linked reimbursement income follow the same calculation as the dashboard. This describes recorded data, not activity missing from the ledger.",
+    note: "Complete saved history; currencies are never added together. All time includes all saved dates, including any future-dated entries. Transfers are not income or spending. Personal spending excludes reimbursable portions. Income EXCLUDES deposits linked to reimbursements, and INCLUDES positive balance adjustments; explain those adjustments separately from earned income. Linked receipts settle claims without adding a second cash deposit. This describes recorded data, not activity missing from the ledger.",
     currencies: currencyList.map(currency => {
       const report = periodReport(workspace, period, currency);
       const metrics = Object.fromEntries((["income", "gross", "spending", "cash", "invested", "receivable", "totalAssets", "netCashFlow", "collected", "contribution", "withdrawal"] as const)
@@ -43,7 +48,11 @@ export function financialReport(data: Workspace, sheet: string, input: z.infer<t
         transaction_count: workspace.transactions.filter(e => accountCurrency(workspace.accounts.find(a => a.id === e.account_id)) === currency && inPeriod(e.occurred_on, period)).length,
         report_entry_count: report.entries.length, reimbursement_payment_count: report.receipts.length, balance_adjustment_count: report.adjustments.length,
         count_note: "Saved transaction count includes deposits linked to reimbursement payments; report entry count excludes those deposits to avoid counting income twice. Reimbursement payments and balance adjustments are separate records.",
-        metrics, by_year: byYear,
+        metrics, income_components: {
+          recorded_income_excluding_linked_deposits: safeMoney(report.entries.filter(e => e.kind === "income").reduce((sum, e) => sum + e.amount_minor, 0), currency),
+          positive_cash_balance_adjustments: safeMoney(report.adjustments.filter(a => !a.investment).reduce((sum, a) => sum + Math.max(0, a.difference), 0), currency),
+          linked_reimbursement_deposits_excluded: safeMoney(workspace.transactions.filter(e => e.kind === "income" && inPeriod(e.occurred_on, period) && accountCurrency(workspace.accounts.find(a => a.id === e.account_id)) === currency && workspace.reimbursement_receipts.some(r => r.income_entry_id === e.id)).reduce((sum, e) => sum + e.amount_minor, 0), currency),
+        }, by_year: byYear,
         largest_expenses: report.entries.filter(e => e.kind === "expense").toSorted((a, b) => b.amount_minor - a.amount_minor || a.id.localeCompare(b.id)).slice(0, 10)
           .map(e => ({ date: e.occurred_on, description: e.description, gross_expense: safeMoney(e.amount_minor, currency), personal_spending: safeMoney(e.amount_minor - e.reimbursable_minor, currency), account: accountName(workspace, e.account_id), category: categoryName(workspace, e.category_id) })),
         categories: report.categories.map(row => ({ name: row.name, personal_spending: safeMoney(row.amount, currency) })),
@@ -56,13 +65,13 @@ export function financialReport(data: Workspace, sheet: string, input: z.infer<t
 export function findTransactions(data: Workspace, sheet: string, input: z.infer<typeof searchQuerySchema>) {
   const query = searchQuerySchema.parse(input);
   if (query.from && !parseDate(query.from) || query.to && !parseDate(query.to) || query.from && query.to && query.from > query.to) throw Error("Use valid inclusive dates in YYYY-MM-DD order.");
-  const workspace = scopeData(data, sheet, query.scope);
+  const workspace = scopeData(data, sheet, query.scope, query.sheet_id);
   const needle = query.search.toLocaleLowerCase();
   const rows = workspace.transactions.filter(e => (!query.from || e.occurred_on >= query.from) && (!query.to || e.occurred_on <= query.to)
     && (!query.account_id || e.account_id === query.account_id || e.destination_account_id === query.account_id)
     && (!query.currency || accountCurrency(workspace.accounts.find(a => a.id === e.account_id)) === query.currency)
     && (!query.kind || e.kind === query.kind)
-    && (!needle || [e.description, e.notes, e.counterparty, categoryName(workspace, e.category_id)].join(" ").toLocaleLowerCase().includes(needle)))
+    && (!needle || [e.description, e.notes, e.counterparty, categoryName(workspace, e.category_id), ...Object.values(e.custom_values ?? {})].join(" ").toLocaleLowerCase().includes(needle)))
     .toSorted((a, b) => a.occurred_on.localeCompare(b.occurred_on) || a.id.localeCompare(b.id));
   return { total_matches: rows.length, offset: query.offset, next_offset: query.offset + 80 < rows.length ? query.offset + 80 : null,
     rows: rows.slice(query.offset, query.offset + 80).map(e => ({ ...e, amount: money(e.amount_minor, accountCurrency(workspace.accounts.find(a => a.id === e.account_id))),
@@ -70,7 +79,7 @@ export function findTransactions(data: Workspace, sheet: string, input: z.infer<
 }
 export function recordDetails(data: Workspace, sheet: string, input: z.infer<typeof detailsQuerySchema>) {
   const query = detailsQuerySchema.parse(input);
-  const scoped = scopeData(data, sheet, query.scope);
+  const scoped = scopeData(data, sheet, query.scope, query.sheet_id);
   const rows = query.collection === "reimbursement_claims" ? claims(scoped).map(claim => ({ expense_id: claim.entry.id, claim_id: claim.id, description: claim.entry.description, counterparty: claim.counterparty, due_on: claim.due_on, currency: accountCurrency(scoped.accounts.find(a => a.id === claim.entry.account_id)), remaining_minor: claim.remaining, status: claim.status })) : scoped[query.collection];
   return { collection: query.collection, total: rows.length, offset: query.offset, next_offset: query.offset + 80 < rows.length ? query.offset + 80 : null, rows: rows.slice(query.offset, query.offset + 80) };
 }
