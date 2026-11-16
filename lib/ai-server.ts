@@ -21,6 +21,7 @@ export type AssistantDependencies = {
   respond: (body: Record<string, unknown>, key: string, signal: AbortSignal) => Promise<GeminiResponse>;
 };
 class AssistantError extends Error { status: number; constructor(message: string, status: number) { super(message); this.status = status; } }
+class ProviderBusyError extends AssistantError {}
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 
 const defaultDependencies: AssistantDependencies = {
@@ -42,7 +43,7 @@ const defaultDependencies: AssistantDependencies = {
     if (!response.ok) {
       const failure = await response.json().catch(() => null) as { error?: { status?: string } } | null;
       if (response.status === 429) throw new AssistantError("Gemini API quota is exhausted. Try later or ask the site owner to check the project’s quota and billing.", 429);
-      if (response.status === 503) throw new AssistantError("Gemini is temporarily busy. Try again shortly. No entries were saved.", 503);
+      if (response.status === 503) throw new ProviderBusyError("Gemini is temporarily busy. Try again shortly. No entries were saved.", 503);
       if ([401, 403, 404].includes(response.status) || failure?.error?.status === "FAILED_PRECONDITION") throw new AssistantError("The Gemini API key, model or project needs attention. Contact the site owner.", 503);
       throw new AssistantError("The AI service could not complete this request. Try again or contact the site owner.", 502);
     }
@@ -166,7 +167,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
           systemInstruction: { parts: [{ text: instructions(metadata, dependencies.demo) + (malformedRetries ? "\nYour previous generation did not produce a valid function call. Retry using only the declared function names and named arguments matching their JSON schemas. Do not repeat argument names or emit raw function-call code." : "") }] }, contents,
           tools: [{ functionDeclarations: availableTools }], toolConfig: { functionCallingConfig: { mode: "VALIDATED" } }, generationConfig: { maxOutputTokens: 32768 } }, activeKey, signal);
       } catch (error) {
-        if (!(error instanceof AssistantError) || error.status !== 429 || !canFailOver || signal.aborted) throw error;
+        if (!(error instanceof AssistantError) || !(error.status === 429 || error instanceof ProviderBusyError) || !canFailOver || signal.aborted) throw error;
         activeKey = fallbackKey || key;
         activeModel = fallbackModel;
         canFailOver = false;

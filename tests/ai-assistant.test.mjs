@@ -350,20 +350,34 @@ test("a missing, blank or duplicate fallback key never retries an exhausted proj
   assert.equal(calls, 3);
 });
 
-test("primary success, configuration failures, capacity errors and safety blocks never fail over", async t => {
+test("primary success, configuration failures and safety blocks never fail over", async t => {
   let calls = 0, status = 200, safety = false;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     calls++; assert.equal(options.headers["x-goog-api-key"], env.GEMINI_API_KEY);
     return Response.json(status === 200 ? safety ? { promptFeedback: { blockReason: "SAFETY" } } : textResponse("Ready") : { error: { message: "Provider detail" } }, { status });
   });
   const fallbackEnv = { ...env, GEMINI_FALLBACK_API_KEY: "backup-key" };
-  for (const [upstream, expected] of [[200, 200], [400, 502], [401, 503], [403, 503], [404, 503], [500, 502], [503, 503]]) {
+  for (const [upstream, expected] of [[200, 200], [400, 502], [401, 503], [403, 503], [404, 503], [500, 502]]) {
     status = upstream;
     assert.equal((await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini))).status, expected);
   }
   status = 200; safety = true;
   assert.equal((await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini))).status, 422);
-  assert.equal(calls, 8);
+  assert.equal(calls, 7);
+});
+
+test("provider capacity errors switch once to the alternate model and stop if both are busy", async t => {
+  let bothBusy = false; const attempts = [];
+  t.mock.method(globalThis, "fetch", async url => {
+    attempts.push(String(url));
+    return String(url).includes("gemini-3.5-flash:") || bothBusy ? Response.json({ error: { status: "UNAVAILABLE" } }, { status: 503 }) : Response.json(textResponse("Backup ready"));
+  });
+  const fallbackEnv = { ...env, GEMINI_FALLBACK_MODEL: "gemini-3.5-flash-lite" };
+  assert.equal((await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini))).status, 200);
+  bothBusy = true;
+  assert.equal((await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini))).status, 503);
+  assert.equal(attempts.length, 4);
+  assert.ok(attempts[1].includes("gemini-3.5-flash-lite:"));
 });
 
 test("cancellation after a quota response prevents fallback requests", async t => {
