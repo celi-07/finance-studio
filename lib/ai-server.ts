@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { loadCloud } from "./ledger-cloud.ts";
 import { configuredCloud, type CloudConfig } from "./ledger-cloud-config.ts";
 import { accountCurrency, today, workspaceForBook, type Workspace } from "./ledger.ts";
-import { assistantRequestSchema, MAX_UPLOAD_BYTES, previewToolSchema, reportDownloadSchema, type AssistantResult } from "./ai-contract.ts";
+import { assistantRequestSchema, MAX_UPLOAD_BYTES, MAX_PREVIEWS, proposedEntrySchema, previewToolSchema, reportDownloadSchema, type AssistantResult } from "./ai-contract.ts";
 import { workspaceActionSchema, prepareWorkspacePreview } from "./ai-workspace.ts";
 import { detailsQuerySchema, financialReport, findTransactions, makePreviews, recordDetails, reportQuerySchema, searchQuerySchema, statementChecks } from "./ai-finance.ts";
 
@@ -140,7 +140,14 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
       accounts: workspace.accounts.map(a => ({ id: a.id, name: a.name, kind: a.kind, currency: accountCurrency(a), opening_date: a.opening_date, sheet_id: a.ledger_id ?? "", archived: a.archived })),
       categories: sheet.categories, custom_fields: sheet.field_definitions, savings_goals: sheet.savings_goals, current_previews: body.previews, current_statement: body.statement };
     const result: AssistantResult = { text: "", previews: null, statement: null, evidence: [], downloads: [], changes: [] };
-    const availableTools = dependencies.demo ? tools : [...tools,
+    const customFields = Object.fromEntries(sheet.field_definitions.filter(field => !field.archived).map(field => [field.id,
+      (field.field_type === "checkbox" ? z.boolean() : z.string().max(1000)).describe(field.label + " (" + field.field_type + ")").optional(),
+    ]));
+    const transactionToolSchema = previewToolSchema.extend({ entries: z.array(proposedEntrySchema.extend({ custom: z.object(customFields).strict().default({}) })).min(1).max(MAX_PREVIEWS) });
+    // A free-form property map cannot constrain Gemini's custom-field keys reliably.
+    const scopedTools = tools.map(declaration => declaration.name === "prepare_transaction_preview"
+      ? tool(declaration.name, declaration.description + " Custom values use only the exact declared field keys; omit fields without a value.", transactionToolSchema) : declaration);
+    const availableTools = dependencies.demo ? scopedTools : [...scopedTools,
       tool("request_report_pdf", "Generate a downloadable report PDF using the app's existing statement renderer and SAVED records. Choose overview, transactions, reimbursements or investments, month/year/all period, currency, and sheet or all sheets. sheet_id null means current sheet. Use one call per requested currency. No arbitrary URL or file path is accepted.", reportDownloadSchema),
       tool("prepare_workspace_preview", "Prepare a validated change for the user to review and approve: account/sheet/category/custom field setup, goal, valuation, balance, reimbursement payment or undo. This NEVER writes to the database. Use saved IDs only; wait for approval of a new account before preparing its transactions. Return clear human-readable summaries. Do not propose changes for a question or report.", workspaceActionSchema),
     ];
@@ -209,7 +216,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
             result.changes!.push(preview);
             output = { status: "preview_only_not_saved", title: preview.title, detail: preview.detail, records: preview.rows, note: "Wait for the user's approval. These records are not saved yet." };
           } else if (call.name === "prepare_transaction_preview") {
-            const proposal = previewToolSchema.parse(args);
+            const proposal = previewToolSchema.parse(transactionToolSchema.parse(args));
             if (proposal.entries.some(e => e.source && !filenames.has(e.source.filename))) throw Error("Use only filenames attached in this chat; use null for a natural-language source.");
             if (proposal.statement && !filenames.has(proposal.statement.filename)) throw Error("The statement must identify an attached file.");
             const previews = makePreviews(sheet, proposal.entries);
