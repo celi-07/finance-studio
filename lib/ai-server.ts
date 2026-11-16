@@ -4,7 +4,7 @@ import { accountCurrency, today, workspaceForBook, type Workspace } from "./ledg
 import { assistantRequestSchema, MAX_UPLOAD_BYTES, previewToolSchema, type AssistantResult } from "./ai-contract.ts";
 import { detailsQuerySchema, financialReport, findTransactions, makePreviews, recordDetails, reportQuerySchema, searchQuerySchema, statementChecks } from "./ai-finance.ts";
 
-export type AIEnvironment = Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY" | "FINANCE_AUTH_MODE" | "GOOGLE_CLIENT_ID"> & { GEMINI_API_KEY?: string; GEMINI_MODEL?: string };
+export type AIEnvironment = Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY" | "FINANCE_AUTH_MODE" | "GOOGLE_CLIENT_ID"> & { GEMINI_API_KEY?: string; GEMINI_FALLBACK_API_KEY?: string; GEMINI_MODEL?: string };
 export type GeminiPart = { text?: string; thought?: boolean; thoughtSignature?: string;
   inlineData?: { mimeType: string; data: string };
   functionCall?: { id?: string; name: string; args?: Record<string, unknown> };
@@ -84,6 +84,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
     const token = /^Bearer ([\w.-]+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
     if (!token) throw new AssistantError("Sign in before using the assistant.", 401);
     const key = (env.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY)?.trim();
+    const fallbackKey = (env.GEMINI_FALLBACK_API_KEY ?? process.env.GEMINI_FALLBACK_API_KEY)?.trim();
     const cloud = configuredCloud(env);
     if (!key || !cloud) throw new AssistantError("The AI assistant is not configured yet. Ask the site owner to connect it.", 503);
     const body = await readBody(request);
@@ -120,11 +121,26 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
       categories: sheet.categories, custom_fields: sheet.field_definitions, current_previews: body.previews, current_statement: body.statement };
     const result: AssistantResult = { text: "", previews: null, statement: null, evidence: [] };
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(210000)]);
+    const initialContentLength = contents.length;
+    let activeKey = key;
     let callCount = 0, malformedRetries = 0;
     for (let round = 0; round < 8; round++) {
-      const response = await dependencies.respond({ model: (env.GEMINI_MODEL ?? process.env.GEMINI_MODEL)?.trim() || "gemini-3.5-flash",
-        systemInstruction: { parts: [{ text: instructions(metadata) + (malformedRetries ? "\nYour previous generation did not produce a valid function call. Retry using only the declared function names and named arguments matching their JSON schemas. Do not repeat argument names or emit raw function-call code." : "") }] }, contents,
-        tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: "VALIDATED" } }, generationConfig: { maxOutputTokens: 32768 } }, key, signal);
+      let response: GeminiResponse;
+      try {
+        signal.throwIfAborted();
+        response = await dependencies.respond({ model: (env.GEMINI_MODEL ?? process.env.GEMINI_MODEL)?.trim() || "gemini-3.5-flash",
+          systemInstruction: { parts: [{ text: instructions(metadata) + (malformedRetries ? "\nYour previous generation did not produce a valid function call. Retry using only the declared function names and named arguments matching their JSON schemas. Do not repeat argument names or emit raw function-call code." : "") }] }, contents,
+          tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: "VALIDATED" } }, generationConfig: { maxOutputTokens: 32768 } }, activeKey, signal);
+      } catch (error) {
+        if (!(error instanceof AssistantError) || error.status !== 429 || !fallbackKey || fallbackKey === activeKey || signal.aborted) throw error;
+        activeKey = fallbackKey;
+        // Restart read/preview-only tools so project-specific model context and partial results do not cross keys.
+        // The caller's reservation, signing key and overall deadline stay unchanged.
+        contents.splice(initialContentLength);
+        result.previews = null; result.statement = null; result.evidence = [];
+        callCount = 0; malformedRetries = 0; round = -1;
+        continue;
+      }
       const candidate = response.candidates?.[0];
       if (["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"].includes(candidate?.finishReason ?? "")) {
         if (malformedRetries++ === 0) continue;

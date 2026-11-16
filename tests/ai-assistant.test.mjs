@@ -272,3 +272,102 @@ test("malformed Gemini tool output gets one bounded retry and is never executed"
   const repeated = await handleAssistant(request(), env, deps(setup(), async () => { calls++; return { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL" }] }; }));
   assert.equal(repeated.status, 422); assert.equal(calls, 2);
 });
+
+test("quota failover uses the backup key for the full tool loop and hides both keys", async t => {
+  const fallbackEnv = { ...env, GEMINI_FALLBACK_API_KEY: "backup-server-only-key" };
+  const keys = []; let firstSignal;
+  const file = { name: "fictional.pdf", type: "application/pdf", data: btoa("%PDF-1.4 fixture") };
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.ok(!String(url).includes("key="));
+    const key = options.headers["x-goog-api-key"]; keys.push(key);
+    firstSignal ??= options.signal; assert.equal(options.signal, firstSignal);
+    const payload = JSON.parse(options.body);
+    assert.ok(payload.contents[0].parts.some(p => p.inlineData?.data === file.data));
+    if (key === env.GEMINI_API_KEY) return Response.json({ error: { status: "RESOURCE_EXHAUSTED" } }, { status: 429 });
+    if (keys.length === 2) return Response.json(callResponse("get_financial_report", { scope: "all", period: "all" }));
+    assert.ok(payload.contents.at(-1).parts[0].functionResponse.response.evidence_id === "R1");
+    return Response.json(textResponse("Fictional report [R1]"));
+  });
+  const response = await handleAssistant(request(body({ messages: [{ role: "user", text: "Summarize", attachments: [file] }] })), fallbackEnv, deps(setup(), respondWithGemini));
+  assert.equal(response.status, 200); const result = await response.json();
+  assert.deepEqual(keys, [env.GEMINI_API_KEY, fallbackEnv.GEMINI_FALLBACK_API_KEY, fallbackEnv.GEMINI_FALLBACK_API_KEY]);
+  assert.equal(result.evidence.length, 1);
+  assert.ok(!JSON.stringify(result).includes(env.GEMINI_API_KEY));
+  assert.ok(!JSON.stringify(result).includes(fallbackEnv.GEMINI_FALLBACK_API_KEY));
+});
+
+test("mid-tool quota failover restarts without stale signatures, previews or report evidence", async t => {
+  const fallbackEnv = { ...env, GEMINI_FALLBACK_API_KEY: "backup-server-only-key" };
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls++; const payload = JSON.parse(options.body);
+    if (calls === 1) return Response.json(callResponse("prepare_transaction_preview", { entries: [proposal()], statement: null }));
+    if (calls === 2) return Response.json(callResponse("get_financial_report", { scope: "all", period: "all" }));
+    if (calls === 3) {
+      assert.ok(JSON.stringify(payload).includes("opaque-test-signature"));
+      return Response.json({ error: { status: "RESOURCE_EXHAUSTED" } }, { status: 429 });
+    }
+    assert.equal(options.headers["x-goog-api-key"], fallbackEnv.GEMINI_FALLBACK_API_KEY);
+    if (calls === 4) {
+      assert.equal(payload.contents.length, 1);
+      assert.ok(!JSON.stringify(payload).includes("opaque-test-signature"));
+      return Response.json(callResponse("get_financial_report", { scope: "all", period: "all" }));
+    }
+    assert.equal(payload.contents.at(-1).parts[0].functionResponse.response.evidence_id, "R1");
+    return Response.json(textResponse("New fictional report [R1]"));
+  });
+  const response = await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini));
+  assert.equal(response.status, 200); const result = await response.json();
+  assert.equal(calls, 5); assert.equal(result.previews, null); assert.equal(result.statement, null);
+  assert.equal(result.evidence.length, 1); assert.equal(result.evidence[0].id, "R1");
+});
+
+test("both Gemini quotas exhausted stops after one failover with a safe error", async t => {
+  const keys = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    keys.push(options.headers["x-goog-api-key"]);
+    return Response.json({ error: { status: "RESOURCE_EXHAUSTED", message: "secret provider details" } }, { status: 429 });
+  });
+  const response = await handleAssistant(request(), { ...env, GEMINI_FALLBACK_API_KEY: "backup-key" }, deps(setup(), respondWithGemini));
+  assert.equal(response.status, 429); assert.deepEqual(keys, [env.GEMINI_API_KEY, "backup-key"]);
+  const result = await response.json(); assert.match(result.error, /quota.*billing/);
+  assert.ok(!JSON.stringify(result).includes("secret provider details"));
+});
+
+test("a missing, blank or duplicate fallback key never retries an exhausted project", async t => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++; return Response.json({ error: { status: "RESOURCE_EXHAUSTED" } }, { status: 429 });
+  });
+  for (const fallback of ["", "   ", ` ${env.GEMINI_API_KEY} `]) {
+    const response = await handleAssistant(request(), { ...env, GEMINI_FALLBACK_API_KEY: fallback }, deps(setup(), respondWithGemini));
+    assert.equal(response.status, 429);
+  }
+  assert.equal(calls, 3);
+});
+
+test("primary success, configuration failures, capacity errors and safety blocks never fail over", async t => {
+  let calls = 0, status = 200, safety = false;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls++; assert.equal(options.headers["x-goog-api-key"], env.GEMINI_API_KEY);
+    return Response.json(status === 200 ? safety ? { promptFeedback: { blockReason: "SAFETY" } } : textResponse("Ready") : { error: { message: "Provider detail" } }, { status });
+  });
+  const fallbackEnv = { ...env, GEMINI_FALLBACK_API_KEY: "backup-key" };
+  for (const [upstream, expected] of [[200, 200], [400, 502], [401, 503], [403, 503], [404, 503], [500, 502], [503, 503]]) {
+    status = upstream;
+    assert.equal((await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini))).status, expected);
+  }
+  status = 200; safety = true;
+  assert.equal((await handleAssistant(request(), fallbackEnv, deps(setup(), respondWithGemini))).status, 422);
+  assert.equal(calls, 8);
+});
+
+test("cancellation after a quota response prevents fallback requests", async t => {
+  const controller = new AbortController(); let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++; controller.abort();
+    return Response.json({ error: { status: "RESOURCE_EXHAUSTED" } }, { status: 429 });
+  });
+  const response = await handleAssistant(new Request(request(), { signal: controller.signal }), { ...env, GEMINI_FALLBACK_API_KEY: "backup-key" }, deps(setup(), respondWithGemini));
+  assert.equal(response.status, 429); assert.equal(calls, 1);
+});
