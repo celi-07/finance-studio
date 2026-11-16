@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { currencies, kinds, type Currency, type EntryDraft } from "./ledger.ts";
+import { personalAIConfigSchema } from "./ai-provider-config.ts";
 
 export const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 export const MAX_PREVIEWS = 150;
@@ -54,6 +55,7 @@ export type ReportDownload = z.infer<typeof reportDownloadSchema>;
 export type AssistantResult = { text: string; previews: DraftPreview[] | null; statement: Statement | null; evidence: ReportEvidence[];
   downloads?: ReportDownload[]; changes?: import("./ai-workspace.ts").WorkspacePreview[] };
 export const assistantRequestSchema = z.object({
+  personalAI: personalAIConfigSchema.optional(),
   messages: z.array(chatMessageSchema).min(1).max(30),
   sheet_id: z.string().max(80), currency: currencySchema,
   previews: z.array(proposedEntrySchema).max(MAX_PREVIEWS).default([]),

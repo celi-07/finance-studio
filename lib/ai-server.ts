@@ -6,6 +6,10 @@ import { accountCurrency, today, workspaceForBook, type Workspace } from "./ledg
 import { assistantRequestSchema, MAX_UPLOAD_BYTES, MAX_PREVIEWS, proposedEntrySchema, previewToolSchema, reportDownloadSchema, type AssistantResult } from "./ai-contract.ts";
 import { workspaceActionSchema, prepareWorkspacePreview } from "./ai-workspace.ts";
 import { detailsQuerySchema, financialReport, findTransactions, makePreviews, recordDetails, reportQuerySchema, searchQuerySchema, statementChecks } from "./ai-finance.ts";
+import { AssistantError, ProviderBusyError } from "./ai-errors.ts";
+import { respondWithProvider } from "./ai-providers.ts";
+import type { AIProvider } from "./ai-provider-config.ts";
+export { respondWithGemini } from "./ai-providers.ts";
 
 export type AIEnvironment = Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY" | "FINANCE_AUTH_MODE" | "GOOGLE_CLIENT_ID"> & { GEMINI_API_KEY?: string; GEMINI_FALLBACK_API_KEY?: string; GEMINI_MODEL?: string; GEMINI_FALLBACK_MODEL?: string };
 export type GeminiPart = { text?: string; thought?: boolean; thoughtSignature?: string;
@@ -18,10 +22,8 @@ export type GeminiResponse = { candidates?: { content?: GeminiContent; finishRea
 export type AssistantDependencies = {
   demo?: boolean;
   authenticate: (token: string, cloud: CloudConfig) => Promise<{ userId: string; workspace: Workspace }>;
-  respond: (body: Record<string, unknown>, key: string, signal: AbortSignal) => Promise<GeminiResponse>;
+  respond: (body: Record<string, unknown>, key: string, signal: AbortSignal, provider?: AIProvider) => Promise<GeminiResponse>;
 };
-class AssistantError extends Error { status: number; constructor(message: string, status: number) { super(message); this.status = status; } }
-class ProviderBusyError extends AssistantError {}
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 
 const defaultDependencies: AssistantDependencies = {
@@ -36,21 +38,8 @@ const defaultDependencies: AssistantDependencies = {
     if (reservation.data !== true) throw new AssistantError("Your assistant request limit has been reached. Try again later.", 429);
     return { userId: data.user.id, workspace: await loadCloud(client, data.user.id) };
   },
-  async respond(body, key, signal) {
-    const { model, ...payload } = body;
-    if (typeof model !== "string" || !/^[a-zA-Z0-9._-]{1,100}$/.test(model)) throw new AssistantError("The Gemini model configuration is invalid. Contact the site owner.", 503);
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify(payload), signal });
-    if (!response.ok) {
-      const failure = await response.json().catch(() => null) as { error?: { status?: string } } | null;
-      if (response.status === 429) throw new AssistantError("Gemini API quota is exhausted. Try later or ask the site owner to check the project’s quota and billing.", 429);
-      if (response.status === 503) throw new ProviderBusyError("Gemini is temporarily busy. Try again shortly. No entries were saved.", 503);
-      if ([401, 403, 404].includes(response.status) || failure?.error?.status === "FAILED_PRECONDITION") throw new AssistantError("The Gemini API key, model or project needs attention. Contact the site owner.", 503);
-      throw new AssistantError("The AI service could not complete this request. Try again or contact the site owner.", 502);
-    }
-    return response.json();
-  },
+  respond: respondWithProvider,
 };
-export const respondWithGemini = defaultDependencies.respond;
 function tool(name: string, description: string, schema: z.ZodType) {
   const parameters = z.toJSONSchema(schema); delete parameters.$schema;
   // Gemini's constrained decoder follows enum/anyOf; literal const/oneOf can be ignored.
@@ -102,13 +91,17 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
     if (!request.headers.get("content-type")?.startsWith("application/json")) throw new AssistantError("Use a JSON request.", 415);
     const token = /^Bearer ([\w.-]+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
     if (!token) throw new AssistantError("Sign in before using the assistant.", 401);
-    const key = (env.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY)?.trim();
+    const body = await readBody(request);
+    // Credentials belong to this authenticated request only; never cache or persist them.
+    const personalAI = dependencies.demo ? undefined : body.personalAI;
+    if (dependencies.demo && body.personalAI) throw new AssistantError("Personal API keys are available only in the signed-in assistant.", 400);
+    const provider = personalAI?.provider ?? "gemini";
+    const key = personalAI?.apiKey ?? (env.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY)?.trim();
     const fallbackKey = (env.GEMINI_FALLBACK_API_KEY ?? process.env.GEMINI_FALLBACK_API_KEY)?.trim();
-    const model = (env.GEMINI_MODEL ?? process.env.GEMINI_MODEL)?.trim() || "gemini-3.5-flash";
+    const model = personalAI?.model ?? ((env.GEMINI_MODEL ?? process.env.GEMINI_MODEL)?.trim() || "gemini-3.5-flash");
     const fallbackModel = (env.GEMINI_FALLBACK_MODEL ?? process.env.GEMINI_FALLBACK_MODEL)?.trim() || model;
     const cloud = configuredCloud(env);
     if (!key || !cloud) throw new AssistantError("The AI assistant is not configured yet. Ask the site owner to connect it.", 503);
-    const body = await readBody(request);
     if (body.messages.at(-1)?.role !== "user") throw new AssistantError("Send a user message to continue.", 400);
     if (body.messages.reduce((n, m) => n + m.text.length, 0) > 100000) throw new AssistantError("This chat is full. Start a new chat to continue.", 413);
     const contents: GeminiContent[] = [];
@@ -157,7 +150,7 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
     const failedActions = new Map<string, string>();
     let activeKey = key;
     let activeModel = model;
-    let canFailOver = Boolean(fallbackKey && fallbackKey !== key || fallbackModel !== model);
+    let canFailOver = !personalAI && Boolean(fallbackKey && fallbackKey !== key || fallbackModel !== model);
     let callCount = 0, malformedRetries = 0;
     for (let round = 0; round < 15; round++) {
       let response: GeminiResponse;
@@ -165,8 +158,12 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
         signal.throwIfAborted();
         response = await dependencies.respond({ model: activeModel,
           systemInstruction: { parts: [{ text: instructions(metadata, dependencies.demo) + (malformedRetries ? "\nYour previous generation did not produce a valid function call. Retry using only the declared function names and named arguments matching their JSON schemas. Do not repeat argument names or emit raw function-call code." : "") }] }, contents,
-          tools: [{ functionDeclarations: availableTools }], toolConfig: { functionCallingConfig: { mode: "VALIDATED" } }, generationConfig: { maxOutputTokens: 32768 } }, activeKey, signal);
+          tools: [{ functionDeclarations: availableTools }], toolConfig: { functionCallingConfig: { mode: "VALIDATED" } }, generationConfig: { maxOutputTokens: 32768 } }, activeKey, signal, provider);
       } catch (error) {
+        if (personalAI && provider === "gemini" && error instanceof AssistantError) {
+          if (error.status === 429) throw new AssistantError("Your Gemini API quota or rate limit has been reached. Check your project’s billing or try again later. No entries were saved.", 429);
+          if (!(error instanceof ProviderBusyError)) throw new AssistantError("Your Gemini API key, model or request needs attention. Check AI settings. No entries were saved.", 422);
+        }
         if (!(error instanceof AssistantError) || !(error.status === 429 || error instanceof ProviderBusyError) || !canFailOver || signal.aborted) throw error;
         activeKey = fallbackKey || key;
         activeModel = fallbackModel;
@@ -182,9 +179,9 @@ export async function handleAssistant(request: Request, env: AIEnvironment = {},
       const candidate = response.candidates?.[0];
       if (["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"].includes(candidate?.finishReason ?? "")) {
         if (malformedRetries++ === 0) continue;
-        throw new AssistantError("Gemini could not prepare a valid tool request. Try a smaller batch or a clearer message. No entries were saved.", 422);
+        throw new AssistantError("The AI could not prepare a valid tool request. Try a smaller batch or a clearer message. No entries were saved.", 422);
       }
-      if (response.promptFeedback?.blockReason || candidate?.finishReason && !["STOP", "MAX_TOKENS"].includes(candidate.finishReason)) throw new AssistantError("Gemini could not safely interpret this request. Try a clearer message or a different document. No entries were saved.", 422);
+      if (response.promptFeedback?.blockReason || candidate?.finishReason && !["STOP", "MAX_TOKENS"].includes(candidate.finishReason)) throw new AssistantError("The AI could not safely interpret this request. Try a clearer message or a different document. No entries were saved.", 422);
       if (candidate?.finishReason !== "STOP" || !Array.isArray(candidate.content?.parts)) throw new AssistantError("The AI response was cut short. Try a smaller statement or a narrower question. No entries were saved.", 502);
       // Keep the model's original parts, including opaque thought signatures, for tool continuation.
       contents.push({ ...candidate.content, role: "model" });
