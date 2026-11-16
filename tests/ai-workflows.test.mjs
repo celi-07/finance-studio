@@ -130,6 +130,26 @@ test("Gemini receives explicit action enums and cannot claim a preview after a r
   assert.match((await response.json()).error, /No changes were saved/);
 });
 
+test("custom-field tool schema declares saved keys and types and rejects invented fields", async () => {
+  const data = workspace();
+  data.field_definitions = [{ id: "reference", label: "AI Test Reference", field_type: "text", archived: false }, { id: "checked", label: "Reviewed", field_type: "checkbox", archived: false }, { id: "old", label: "Archived", field_type: "text", archived: true }];
+  for (const valid of [true, false]) {
+    let round = 0;
+    const response = await handleAssistant(request(), env, deps(data, async payload => {
+      if (!round++) {
+        const schema = payload.tools[0].functionDeclarations.find(t => t.name === "prepare_transaction_preview").parametersJsonSchema.properties.entries.items.properties.custom;
+        assert.equal(schema.additionalProperties, false);
+        assert.deepEqual(Object.keys(schema.properties), ["reference", "checked"]);
+        assert.equal(schema.properties.checked.type, "boolean");
+        return call("prepare_transaction_preview", { entries: [{ kind: "income", occurred_on: "2026-10-02", description: "AI Test Salary", amount: "5000000", currency: "IDR", account_id: "bank", destination_account_id: null, category_id: null, custom: valid ? { reference: "E2E-2026", checked: true } : { invented: "ignored?" }, source: null, warnings: [] }], statement: null });
+      }
+      return reply("Review the drafts.");
+    }));
+    assert.equal(response.status, valid ? 200 : 422);
+    if (valid) assert.deepEqual((await response.json()).previews[0].draft.custom, { reference: "E2E-2026", checked: true });
+  }
+});
+
 test("configuration, goals and balance previews enforce sheet, account and date constraints", () => {
   const data = workspace();
   assert.equal(change(data, { type: "create_sheet", name: "Test business" }).collection, "finance_books");
