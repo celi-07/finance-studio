@@ -194,7 +194,7 @@ strong { font-weight: var(--font-emphasis); }
 .chart-dense .chart-group > span { font-size: .62rem; }
 .chart-tip { display: none; }
 @media (hover: hover) {
-  .chart-tip { display: grid; gap: 2px; position: absolute; z-index: 2; top: 0; left: 50%; translate: -50% -8px; width: max-content;
+  .chart-tip { display: grid; gap: 2px; position: absolute; z-index: 2; top: 0; left: 50%; translate: -50% -8px; width: max-content; max-width: min(220px, calc(100vw - 90px)); white-space: normal; overflow-wrap: anywhere;
     visibility: hidden; opacity: 0; pointer-events: none; padding: 8px 11px; border: 1px solid var(--strong-line);
     border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: 0 4px 16px var(--menu-shadow);
     font-size: .74rem; font-weight: var(--font-regular); font-variant-numeric: tabular-nums; }
@@ -809,7 +809,7 @@ strong { font-weight: var(--font-emphasis); }
   .nav { --nav-size: 3.15rem; }
   .nav-lens { top: 5px; left: 5px; width: calc((100% - 10px - (var(--nav-count) - 1) * 1px) / var(--nav-count)); border-radius: 15px; transform: translateX(calc(var(--selection) * (100% + 1px))); }
   .nav a { flex-direction: column; justify-content: center; gap: 3px; padding: 6px 1px; min-height: 49px; border-radius: 15px; }
-  .nav-short { display: block; font-size: .66rem; white-space: nowrap; }
+  .nav-short { display: block; font-size: clamp(9px, 2.65vw, 11px); white-space: nowrap; }
   .nav a svg { width: 18px; height: 18px; }
   .page { padding: 18px 0 0; }
   .page-heading { margin-bottom: 16px; gap: 11px; }
