@@ -494,7 +494,10 @@ strong { font-weight: var(--font-emphasis); }
 .overview-lower .recent-panel { grid-column: 1; grid-row: 1; }
 .overview-lower .account-section { grid-column: 2; grid-row: 1; }
 .overview-trends { margin-top: 16px; }
-.overview-trend-toolbar { display: flex; justify-content: end; margin-bottom: 10px; }
+.overview-trend-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-bottom: 14px; }
+.overview-trend-toolbar h2 { font-size: 1rem; }
+.overview-trend-toolbar p { margin-top: 3px; color: var(--muted); font-size: .78rem; }
+.overview-trend-currency { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: .78rem; }
 .overview-trend-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .trend-card { --plot-height: 146px; padding: 17px 19px; min-width: 0; }
 .panel.trend-card[data-tone="mint"] { --panel-tint: var(--wash-mint); }
