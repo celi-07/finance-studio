@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import {
   ArrowLeftRight, Banknote, BanknoteArrowDown, BriefcaseBusiness, ChartNoAxesCombined, ChevronRight, CircleDollarSign,
-  HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
+  HeartPulse, House, Landmark, LogOut, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
 } from "lucide-react";
 import { accountName, activityLabel, activityMoney, currencyForAccount, dayLabel, formatMoneyInput, type AccountKind, type Activity, type Currency, type Workspace } from "@/lib/ledger";
 
@@ -69,6 +69,13 @@ export function Field({ label, children, error, full, hint }: { label: string; c
   return <label className={"field" + (full ? " full" : "")}>
     <span>{label}</span>{children}{error ? <small className="field-error">{error}</small> : hint && <small>{hint}</small>}
   </label>;
+}
+export function SignedInAccount({ email, onSignOut }: { email: string; onSignOut: () => void }) {
+  return <div className="session-account" role="group" aria-label="Signed-in account">
+    <span className="session-avatar" aria-hidden="true">{email.trim().slice(0, 1).toUpperCase() || "U"}</span>
+    <span className="session-identity"><small>Signed in</small><strong title={email}>{email || "Your account"}</strong></span>
+    <button type="button" className="button quiet session-signout" onClick={onSignOut}><LogOut size={16} aria-hidden="true"/>Sign out</button>
+  </div>;
 }
 export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspace: Workspace; onOpen: (row: Activity) => void }) {
   const fallback = activityStyles[row.kind];

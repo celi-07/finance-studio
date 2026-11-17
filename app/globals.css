@@ -66,6 +66,13 @@ strong { font-weight: 660; }
 .page-heading p { color: var(--muted); font-size: .91rem; margin-top: 4px; }
 .header-actions, .button-line { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 .header-actions { justify-content: flex-end; }
+.session-account { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; padding: 6px 7px 6px 10px; border: 1px solid var(--strong-line); border-radius: 14px; background: var(--surface); box-shadow: inset 0 1px 0 var(--rim); }
+.session-avatar { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px; background: var(--wash-mint); color: var(--tone-mint); font-size: .88rem; font-weight: 700; }
+.session-identity { display: grid; gap: 1px; min-width: 0; }
+.session-identity small { font-size: .67rem; color: var(--muted); }
+.session-identity strong { max-width: 25ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; font-weight: 600; }
+.session-account .session-signout { flex-shrink: 0; margin-inline-start: 3px; border-inline-start: 1px solid var(--line); border-radius: 0 9px 9px 0; padding-inline: 12px 9px; }
+@media (max-width: 600px) { .session-account { width: 100%; } .session-identity { flex: 1; } .session-identity strong { max-width: 100%; } }
 .report-currency .picker-trigger, .report-sheet .picker-trigger { min-height: 40px; background: var(--surface); }
 .report-sheet { min-width: 0; max-width: 200px; }
 .compact-export, .month-short { display: none; }
