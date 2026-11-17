@@ -22,9 +22,9 @@ import type { PersonalAIConfig } from "@/lib/ai-provider-config";
 
 const routes = {
   overview: { label: "Overview", caption: "", icon: PanelsTopLeft },
-  transactions: { label: "Transactions", caption: "Income, expenses and transfers", icon: ReceiptText },
-  reimbursements: { label: "Reimbursements", caption: "Claims and payments", icon: HandCoins },
-  investments: { label: "Investments", caption: "Holdings and cash movements", icon: ChartNoAxesCombined },
+  transactions: { label: "Entries", caption: "Income, expenses and transfers", icon: ReceiptText },
+  reimbursements: { label: "Claims", caption: "Claims and payments", icon: HandCoins },
+  investments: { label: "Invest", caption: "Holdings and cash movements", icon: ChartNoAxesCombined },
   assistant: { label: "Assistant", caption: "Ask about records, prepare changes and download reports", icon: Sparkles },
   settings: { label: "Settings", caption: "Accounts, categories and entry fields", icon: SlidersHorizontal },
 } as const;
@@ -394,7 +394,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
         {Object.entries(routes).map(([key, { label, icon: Icon }]) => <a key={key} href={"#" + key} aria-current={route === key ? "page" : undefined}
           onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); navigate(key as Route); } }}>
           <Icon size={19} aria-hidden="true"/><span className="nav-label">{label}</span>
-          <span className="nav-short">{key === "transactions" ? "Activity" : key === "reimbursements" ? "Claims" : key === "investments" ? "Invest" : label}</span>
+          <span className="nav-short">{label}</span>
         </a>)}
       </nav>
     </aside>
