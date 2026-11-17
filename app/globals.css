@@ -490,11 +490,11 @@ strong { font-weight: var(--font-emphasis); }
 .spending-panel .section-heading { margin-bottom: 11px; }
 .category-bars { gap: 7px; }
 .category-bars span { color: var(--ink); }
-.overview-lower { display: grid; grid-template-columns: minmax(0, 1.63fr) minmax(315px, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+.overview-lower { display: grid; grid-template-columns: minmax(0, 1.63fr) minmax(315px, 1fr); gap: 16px; margin-top: clamp(24px, 3vw, 32px); align-items: start; }
 .overview-lower .recent-panel { grid-column: 1; grid-row: 1; }
 .overview-lower .account-section { grid-column: 2; grid-row: 1; }
-.overview-trends { margin-top: 16px; }
-.overview-trend-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-bottom: 14px; }
+.overview-trends { margin-top: clamp(24px, 3vw, 32px); }
+.overview-trend-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; margin-bottom: 16px; }
 .overview-trend-toolbar h2 { font-size: 1rem; }
 .overview-trend-toolbar p { margin-top: 3px; color: var(--muted); font-size: .78rem; }
 .overview-trend-currency { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: .78rem; }
@@ -557,12 +557,12 @@ strong { font-weight: var(--font-emphasis); }
 .combined-card, .combined-sheets { padding: 17px 19px; }
 .combined-card > p { margin-top: 8px; color: var(--muted); font-size: .78rem; }
 .combined-card > strong { display: block; margin-block: 2px 11px; font-size: clamp(1.2rem, 2.1vw, 1.75rem); font-variant-numeric: tabular-nums; }
-.combined-sheets { margin-top: 16px; --panel-tint: var(--wash-mint); }
+.combined-sheets { margin-top: clamp(24px, 3vw, 32px); --panel-tint: var(--wash-mint); }
 .combined-sheet-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr) auto; align-items: center; gap: 10px; width: 100%;
   min-height: 44px; padding: 9px 4px; border: 0; border-top: 1px solid var(--line); color: var(--ink); background: transparent; text-align: start; }
 .combined-sheet-row:hover { background: var(--hover); }
 .combined-sheet-row > span { color: var(--muted); text-align: end; font-size: .82rem; }
-.planning-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 16px; }
+.planning-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: clamp(24px, 3vw, 32px); }
 .panel.calendar-panel { --panel-tint: var(--wash-rose); }
 .panel.goals-panel { --panel-tint: var(--wash-mint); }
 .calendar-panel, .goals-panel { padding: clamp(12px, 2vw, 22px); min-width: 0; }
