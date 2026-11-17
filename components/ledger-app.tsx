@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { isAuthError } from "@supabase/supabase-js";
-import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, LogOut, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal, Sparkles, Trash2, WalletCards } from "lucide-react";
+import { ArrowLeft, ChartNoAxesCombined, CircleAlert, Download, HandCoins, Layers3, PanelsTopLeft, Pencil, Plus, ReceiptText, ShieldCheck, Sheet, SlidersHorizontal, Sparkles, Trash2, WalletCards } from "lucide-react";
 import { accountCurrency, accountName, activeFields, currencyForAccount, dayLabel, defaultCurrency, emptyWorkspace, entryClaims, withoutFinanceSheet, inPeriod, isCurrency, money, paymentKey, today, workspaceForBook, workspaceForCurrency, type Activity, type BalanceUpdate, type Collection, type Currency, type Entry, type Field as Definition, type FinanceBook, type Kind, type Receipt, type SavingsGoal, type Workspace } from "@/lib/ledger";
 import { createDemo, demoMonth, exportDemo, readDemo, writeDemo } from "@/lib/demo";
 import { deleteCloud, deleteCloudSheet, getSupabase, loadCloud, upsertCloud } from "@/lib/ledger-cloud";
@@ -11,7 +11,7 @@ import type { CloudConfig } from "@/lib/ledger-cloud-config";
 import { downloadStatement } from "@/lib/statement";
 import { EntryDialog } from "./ledger-entry";
 import { BalanceUpdateDialog, BookDialog, DeleteSheetDialog, FinanceGuide, ManagementDialog, ReceiptDialog, Settings, TaskForm, ValueDialog, type Management } from "./ledger-settings";
-import { Brand, Empty, Field, Modal } from "./ledger-ui";
+import { Brand, Empty, Field, Modal, SignedInAccount } from "./ledger-ui";
 import { Picker, ReportingPeriod, type PeriodMode } from "./ledger-picker";
 import { CombinedOverview, filterActivity, Investments, Overview, Reimbursements, Transactions, type Filters } from "./ledger-views";
 import { FinanceWelcome, ProviderSignIn, VerifyEmail } from "./finance-welcome";
@@ -357,7 +357,8 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
     try {
       const activity = route === "transactions" && (filters.search || filters.kind || filters.account) ? filterActivity(reportData, period, filters, currency) : undefined;
       const people = route === "reimbursements" ? selectedPeople : undefined;
-      await downloadStatement(reportData, period, currency, !configured, route, showingAllSheets ? "All sheets" : currentSheet.name, { activity, people });
+      await downloadStatement(showingAllCurrencies ? reportBase : reportData, period, currency, !configured, route, showingAllSheets ? "All sheets" : currentSheet.name,
+        { activity, people, currencies: showingAllCurrencies ? availableCurrencies : undefined });
       setNotice("Statement downloaded");
     } catch (error) { setProblem(errorText(error)); }
     finally { setExporting(false); }
@@ -411,7 +412,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
                 if (isCurrency(code)) setPreferredCurrency(code);
                 setFilters(previous => ({ ...previous, account: "" }));
               }}/></div>}
-            {reportingPage && !showingAllCurrencies && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} onClick={makePdf} disabled={exporting || loading}>
+            {reportingPage && <button className="button secondary report-export" aria-label={exporting ? "Preparing PDF" : "Download PDF"} title={showingAllCurrencies ? "Download an overview PDF with a separate section for each currency" : "Download this report as a PDF"} onClick={makePdf} disabled={exporting || loading}>
               <Download size={17}/><span className="desktop-export">{exporting ? "Preparing…" : "Download PDF"}</span><span className="compact-export" aria-hidden="true">{exporting ? "Saving…" : "PDF"}</span>
             </button>}
             {route === "transactions" && <button className="button secondary sheet-action" onClick={() => openEntry(undefined, undefined, true)}><Sheet size={17}/> Spreadsheet</button>}
@@ -425,7 +426,7 @@ export default function LedgerApp({ cloud }: { cloud: CloudConfig | null }) {
                 <button className="button quiet" onClick={() => setPanel({ type: "book", book: currentSheet })}><Pencil size={16}/> Rename sheet</button>
                 <button className="button danger quiet" onClick={() => setPanel({ type: "delete-sheet", book: currentSheet })}><Trash2 size={16}/> Delete sheet</button>
               </>}
-              {configured && <><span className="muted">{signedInEmail}</span><button className="button quiet" onClick={signOut}><LogOut size={16}/> Sign out</button></>}
+              {configured && <SignedInAccount email={signedInEmail} onSignOut={() => void signOut()}/>}
             </> : reportingPage && !combinedSheets && <button className="button primary" onClick={() => openEntry()}><Plus size={19}/> Add entry</button>}
           </div>
         </header>
