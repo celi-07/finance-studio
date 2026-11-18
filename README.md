@@ -2,6 +2,12 @@
 
 Finance Studio tracks income, spending, cash movement, reimbursements and investments across 20 currencies. Monthly reporting uses Asia/Jakarta dates.
 
+## Product tour
+
+[![Watch the 80-second Finance Studio web and mobile product tour](https://finance-studio.whiteeorangee.com/product-tour/poster.jpg)](https://finance-studio.whiteeorangee.com/#product-tour)
+
+[Watch the video](https://finance-studio.whiteeorangee.com/#product-tour) · [Open the MP4](https://finance-studio.whiteeorangee.com/product-tour/finance-studio.mp4)
+
 ## Run the demo
 
 From this folder, run **npm ci** and **npm run dev**. Open the local address printed by the development server.
