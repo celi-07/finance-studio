@@ -9,6 +9,10 @@ import { Brand, Field } from "./ledger-ui";
 import { GoogleSignIn } from "./google-sign-in";
 
 export function FinanceWelcome({ demo, onStart }: { demo: boolean; onStart: () => void }) {
+  useEffect(() => {
+    if (window.location.hash === "#product-tour") document.getElementById("product-tour")?.scrollIntoView();
+  }, []);
+
   return <main className="welcome">
     <header className="welcome-header"><Brand/><button className="button secondary" onClick={onStart}>{demo ? "Try demo" : "Sign in"}</button></header>
     <section className="welcome-hero" aria-labelledby="welcome-title">
