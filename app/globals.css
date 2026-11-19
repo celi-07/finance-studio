@@ -440,7 +440,7 @@ strong { font-weight: var(--font-emphasis); }
 .preview-amounts > div:last-child { border-bottom: 0; }
 .preview-amounts dd { margin: 0; font-weight: var(--font-emphasis); text-align: end; }
 .welcome-tour { width: 100%; max-width: 840px; margin: 0 auto 42px; scroll-margin-top: 24px; }
-.welcome-tour h2 { font-size: clamp(1.35rem, 3vw, 1.8rem); margin-bottom: 14px; }
+.welcome-tour h2 { font-size: clamp(1.35rem, 3vw, 1.8rem); margin-bottom: 14px; text-align: center; }
 .welcome-tour video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: var(--radius); background: #0c1427; }
 .welcome-features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 25px; padding-block: 28px; border-block: 1px solid var(--line); }
 .welcome-features h2 { margin-top: 9px; }
