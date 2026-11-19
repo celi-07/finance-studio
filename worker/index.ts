@@ -1,6 +1,4 @@
 import handler from "vinext/server/fetch-handler";
-import { runWithConnectorBinding } from "../lib/connector-context";
-import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { configuredCloud } from "../lib/ledger-cloud-config";
 
 function documentPolicy(env: Cloudflare.Env) {
@@ -31,7 +29,7 @@ function documentPolicy(env: Cloudflare.Env) {
 }
 
 const worker = {
-  async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+  async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext) {
     // All writes go directly to Supabase. This app has no server actions or image optimizer.
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -39,26 +37,7 @@ const worker = {
     const pathname = new URL(request.url).pathname;
     if (/^\/(?:_next|_vinext)\/image\/?$/.test(pathname)) return new Response(null, { status: 404 });
 
-    let binding = ctx.props?.CONNECTORS;
-    // Local preview emulates the same request-scoped capability. This branch and
-    // the auxiliary service binding are absent from production builds.
-    if (import.meta.env.DEV && !binding && env.CONNECTORS) {
-      const preview = env.CONNECTORS;
-      const expiresAt = Date.now() + 60_000;
-      binding = {
-        async getContext() {
-          if (Date.now() >= expiresAt) return { status: "request_context_expired" };
-          return preview.getContext?.() ?? { status: "binding_unavailable" };
-        },
-        async invoke(connectorId, actionName, args) {
-          if (Date.now() >= expiresAt) {
-            return { status: "request_context_expired", message: "This request has expired. Please try again." };
-          }
-          return preview.invoke(connectorId, actionName, args);
-        },
-      };
-    }
-    if (import.meta.env.DEV) return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
+    if (import.meta.env.DEV) return handler.fetch(request, env, ctx);
 
     // Vinext uses the request policy to apply the nonce to its hydration scripts.
     const { policy, googleSignIn } = documentPolicy(env);
@@ -66,7 +45,7 @@ const worker = {
     requestHeaders.set("Content-Security-Policy", policy);
     requestHeaders.delete("Content-Security-Policy-Report-Only");
     const scopedRequest = new Request(request, { headers: requestHeaders });
-    const response = await runWithConnectorBinding(binding, () => handler.fetch(scopedRequest, env, ctx));
+    const response = await handler.fetch(scopedRequest, env, ctx);
     if (!response.headers.get("Content-Type")?.startsWith("text/html")) return response;
 
     const headers = new Headers(response.headers);
