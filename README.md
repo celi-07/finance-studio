@@ -74,6 +74,35 @@ The grid opens with one blank row. Use **Add row** for one more, or the arrow be
 
 For expenses, the form offers **None**, **Partial**, and **Full** reimbursement. In the spreadsheet, use **Reimbursement (optional)** for the amount owed back and **Amount** for the entire expense. Leave **Due date** blank when there is no deadline.
 
-Use **Assistant** to draft one income or expense in plain language. Try **Beli nasi goreng Rp47.900 tanggal 3 Okt 2026**, then send **pakai BCA** or edit the preview directly. The browser uses local rules to prepare the draft. Select **Submit transaction** to save it.
+## Signed-in AI assistant
+
+The Assistant tab accepts custom English or Indonesian requests and PDF, image, CSV or text attachments. It reads the authenticated owner's saved records afresh on each request using the caller's JWT and Supabase row-level security; it never uses a service-role key. Apply migration [011 · AI assistant usage](supabase/migrations/011_ai_assistant_usage.sql) before enabling this endpoint. Email verification is required, with a persistent limit of 100 requests per user per UTC day and at least five seconds between requests.
+
+The AI prepares transaction batches and validated setup, savings-goal, valuation, balance and reimbursement-payment changes for review. Confirm or submit a preview to save it through the existing Supabase save flow. Newly saved records persist after reload and are included in the next AI report. New accounts must be approved before proposing their transactions. Drafts and chat remain local to the current tab; the on-screen privacy notice explains Google's processing before sending.
+
+Ask for a PDF, such as **Download my October 2026 transaction report as a PDF in IDR**, or specify Overview, Reimbursements or Investments. The AI returns a validated report specification; the browser calls the same statement renderer as the existing Download PDF button, starts the download and adds a save link to the reply. Reports contain saved records, follow the requested sheet/month/year/all-time scope, and generate separate files for different currencies. No invented download URL or separate PDF-generation service is used.
+
+`/api/assistant` is authenticated. The isolated public demo uses `/api/ai-demo` and has no private-record access or setup/export tools.
+
+## Fictional AI portfolio demo
+
+`/ai-demo` is public and requires no sign-in. Gemini 3.5 Flash generates live responses for five fixed fictional scenarios: complete-history summaries, expense searches, sample PDF extraction, a split dinner expense, and a follow-up correction. It remains separate from the signed-in Assistant.
+
+The public API accepts only a scenario ID and optional server-signed conversation state. It never accepts arbitrary prompts, uploads, ledger rows, sheet IDs, or manual preview edits. The server supplies the fictional workspace and the included sample PDF; it does not read private financial tables or user sessions. Native Gemini function calls use validated decoding. Reports calculate exact currency-separated totals; previews include field validation, duplicate checks and statement reconciliation. Edited/approved entries are added only to an in-memory browser review ledger, and AI reports continue to describe the original sample history.
+
+To activate it:
+
+1. Apply migration [012 · public AI demo counters](supabase/migrations/012_ai_demo_usage.sql). Earlier migration 011 can remain installed but is not used by this demo.
+2. Set **GEMINI_API_KEY** as a server-only Production secret in Vercel. Optionally set **GEMINI_MODEL** (default `gemini-3.5-flash`). The model must support PDFs and validated function calling. Never use a `NEXT_PUBLIC_*` prefix for this secret.
+3. Keep the existing public Supabase URL and publishable-key configuration. The demo’s only database operation is the anonymous `ledger_ai_demo_reserve` counter RPC. It does not use a service-role key or access any financial tables.
+4. Deploy the `vercel` branch with `npx next build`. The API route allows 240 seconds. Worker hosting dispatches the same endpoint to the demo handler.
+5. Open `/ai-demo`, run the sample PDF and dinner/correction scenarios, edit a draft and submit it to the tab’s review ledger.
+
+For automatic quota failover, optionally set **GEMINI_FALLBACK_API_KEY** as another server-only Production secret and redeploy. Use an independently provisioned Google Cloud project with available quota and access to the configured **GEMINI_MODEL**. [Gemini quotas apply per project, not per API key](https://ai.google.dev/gemini-api/docs/rate-limits); a second key in the primary project does not provide extra quota. Provision quota through Google’s normal project and billing controls.
+
+The primary key/model is tried first on each request. A Gemini quota response (HTTP 429) or provider capacity response (HTTP 503) switches to the fallback, at most once per request. Optionally set **GEMINI_FALLBACK_MODEL** to a compatible model with available quota; blank keeps the primary model. Model limits can differ even within one project. Without a fallback key, a different fallback model uses the primary key. If quota runs out during tool processing, the read/preview-only generation restarts from the original request without returning partial results or reusing another model’s thought signatures. Both attempts share the same deadline and one application-limit reservation. Configuration errors, safety blocks and the app’s own visitor/user/global limits do not trigger fallback. Keep **GEMINI_API_KEY** unchanged: it still signs public demo conversations and hashes visitors even while generation uses the fallback. Neither key is sent to the browser.
+
+The free shared demo is limited persistently to 100 visitor requests per UTC day globally, 20 per visitor, and at least five seconds between a visitor’s requests. Counters use a keyed network-address hash rather than raw IP addresses and are cleared once older than seven days on the next accepted request. Provider quotas may be lower. An optional, explicitly labeled recorded Gemini PDF example supports preview editing and browser-only submission when live quota is unavailable. Recorded replies and local edits never re-enter live AI context. Conversations expire after one hour and at most eight turns; the server signs their context to prevent visitors from injecting arbitrary content. The model has read/report/preview tools only and no SQL, arbitrary network, or save tool. Chat, review edits and added rows are not saved to a server database. The privacy policy describes Google’s processing of fictional API content.
+
 
 Use **Month**, **Year**, or **All time** to set the reporting period on Overview, Transactions, Reimbursements, and Investments. The PDF uses the same period. The activity calendar appears in Month view. Savings goals show cash and allocations as of today.

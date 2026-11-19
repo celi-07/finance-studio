@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import {
   ArrowLeftRight, Banknote, BanknoteArrowDown, BriefcaseBusiness, ChartNoAxesCombined, ChevronRight, CircleDollarSign,
-  HeartPulse, House, Landmark, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
+  HeartPulse, House, Landmark, LogOut, PenTool, ReceiptText, ShoppingBag, TicketCheck, TrainFront, TrendingDown, TrendingUp, Utensils, WalletMinimal, X, type LucideIcon,
 } from "lucide-react";
 import { accountName, activityLabel, activityMoney, currencyForAccount, dayLabel, formatMoneyInput, type AccountKind, type Activity, type Currency, type Workspace } from "@/lib/ledger";
 
@@ -18,10 +18,10 @@ const activityStyles: Record<Activity["kind"], { icon: LucideIcon; tone: string 
   reimbursement_receipt: { icon: TicketCheck, tone: "mint" },
   balance_update: { icon: ChartNoAxesCombined, tone: "orchid" },
 };
-const categoryIcons = new Map<string, LucideIcon>([
-  ["food & drink", Utensils], ["transport", TrainFront], ["home & bills", House],
-  ["shopping", ShoppingBag], ["health", HeartPulse], ["salary", BriefcaseBusiness], ["freelance", PenTool],
-]);
+const categoryIcons: Record<string, LucideIcon> = {
+  "food & drink": Utensils, transport: TrainFront, "home & bills": House,
+  shopping: ShoppingBag, health: HeartPulse, salary: BriefcaseBusiness, freelance: PenTool,
+};
 const categoryTones = new Map([
   ["green", "mint"], ["blue", "blue"], ["amber", "amber"], ["violet", "orchid"], ["rose", "coral"],
   ["teal", "mint"], ["cyan", "blue"], ["indigo", "orchid"], ["plum", "orchid"],
@@ -70,10 +70,17 @@ export function Field({ label, children, error, full, hint }: { label: string; c
     <span>{label}</span>{children}{error ? <small className="field-error">{error}</small> : hint && <small>{hint}</small>}
   </label>;
 }
+export function SignedInAccount({ email, onSignOut }: { email: string; onSignOut: () => void }) {
+  return <div className="session-account" role="group" aria-label="Signed-in account">
+    <span className="session-avatar" aria-hidden="true">{email.trim().slice(0, 1).toUpperCase() || "U"}</span>
+    <span className="session-identity"><small>Signed in</small><strong title={email}>{email || "Your account"}</strong></span>
+    <button type="button" className="button quiet session-signout" onClick={onSignOut}><LogOut size={16} aria-hidden="true"/>Sign out</button>
+  </div>;
+}
 export function ActivityRow({ row, workspace, onOpen }: { row: Activity; workspace: Workspace; onOpen: (row: Activity) => void }) {
   const fallback = activityStyles[row.kind];
   const category = workspace.categories.find(item => item.id === row.entry?.category_id);
-  const Icon = category ? categoryIcons.get(category.name.toLowerCase()) ?? fallback.icon : fallback.icon;
+  const Icon = category ? categoryIcons[category.name.toLowerCase()] ?? fallback.icon : fallback.icon;
   const tone = (category && categoryTones.get(category.color)) || fallback.tone;
   const amount = activityMoney(row, currencyForAccount(workspace, row.accountId));
   return <button type="button" className="activity-row" onClick={() => onOpen(row)} aria-label={"View " + row.title + ", " + activityLabel(row) + ", " + amount}>

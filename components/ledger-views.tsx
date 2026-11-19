@@ -122,7 +122,10 @@ function OverviewTrends({ workspace, period, currency, currencyPicker }: {
     x: (index + .5) / series.length * 480, y: 5 + (top - row.wealth) / (top - bottom) * 146,
   }));
   return <section className="overview-trends" aria-label="Monthly trends">
-    {currencyPicker && <div className="overview-trend-toolbar">{currencyPicker}</div>}
+    {currencyPicker && <header className="overview-trend-toolbar">
+      <div><h2>Charts</h2><p>Net wealth, income and expenses</p></div>
+      <div className="overview-trend-currency"><span>Chart currency</span>{currencyPicker}</div>
+    </header>}
     <div className="overview-trend-grid">
       <section className="panel trend-card" data-tone="blue">
         <SectionHeading title="Net wealth" subtitle={"Cash + investments + owed to you · " + currency}/>
